@@ -2117,6 +2117,19 @@ echo "
 - [ ] Protected routes redirect to login
 - [ ] Public-only routes redirect to dashboard when authenticated
 - [ ] Email confirmation flow works (if enabled)
+
+### 🎯 AI Code Review (STEP 17)
+
+- [ ] Ran Security Review prompts (authentication, environment, routes)
+- [ ] Ran Performance Review prompts (bundle, rendering, database)
+- [ ] Ran Bug Detection prompts (edge cases, errors, validation)
+- [ ] Ran Code Quality prompts (TypeScript, DRY, accessibility, SOLID)
+- [ ] Documented all findings
+- [ ] Fixed critical security issues
+- [ ] Fixed critical bugs
+- [ ] Addressed high-priority performance issues
+- [ ] Re-ran build and tests after fixes
+- [ ] Code is production-ready
 - [ ] Ready for Lesson 4 (Project CRUD Operations)
 
 ---
@@ -2137,6 +2150,7 @@ echo "
 ✅ **Type Safety** - Full TypeScript coverage for auth
 ✅ **E2E Testing** - Playwright automated testing with best practices
 ✅ **AI-Assisted Testing** - Codegen and test generation prompts
+✅ **AI Code Review** - Security, performance, bugs, and code quality audits
 
 **Key Concepts Mastered:**
 
@@ -2158,6 +2172,10 @@ echo "
 - Page Object Model pattern
 - AI-assisted test generation
 - CI/CD integration for tests
+- AI code review for security audits
+- Performance optimization with AI
+- Bug detection using AI prompts
+- Code quality assessment (SOLID, DRY, WCAG)
 
 **Security Features Implemented:**
 
@@ -2169,6 +2187,829 @@ echo "
 6. **Route Protection** - Unauthorized access prevention
 
 **Next Lesson:** Module 1, Lesson 4 - Project CRUD Operations (Create, Read, Update, Delete projects using RPC functions)
+
+---
+
+### 🎯 STEP 17 — AI-Assisted Code Review
+
+Before moving to the next lesson, use AI to review your implementation for security, performance, bugs, and code quality. This step ensures your code follows best practices and is production-ready.
+
+**Why AI Code Review?**
+- ✅ Catches security vulnerabilities before production
+- ✅ Identifies performance bottlenecks
+- ✅ Finds edge cases and potential bugs
+- ✅ Ensures code quality and maintainability
+- ✅ Provides actionable improvement suggestions
+
+---
+
+#### 🔒 Security Review Prompts
+
+**1. Authentication Security Audit:**
+
+```
+Prompt: "Review this Next.js 16 + Supabase authentication implementation for security vulnerabilities:
+
+Files to review:
+- src/lib/actions/auth.ts (Server Actions)
+- src/app/(auth)/login/page.tsx
+- src/app/(auth)/signup/page.tsx
+- src/app/dashboard/page.tsx
+- proxy.ts (route protection)
+
+Check for:
+1. Authentication bypass vulnerabilities
+2. Session management security (cookie flags, expiration)
+3. Password handling (hashing, minimum requirements)
+4. CSRF protection (verify Server Actions are protected)
+5. XSS vulnerabilities in form inputs
+6. SQL injection risks (Supabase queries)
+7. Sensitive data exposure (logs, error messages)
+8. Rate limiting on auth endpoints
+9. Email enumeration attacks
+10. Redirect vulnerabilities (open redirects)
+
+Provide specific issues found and recommended fixes with code examples."
+```
+
+**2. Environment Variables Security:**
+
+```
+Prompt: "Review environment variable configuration for security:
+
+Files to review:
+- .env.local.example
+- src/lib/supabase/client.ts
+- src/lib/supabase/server.ts
+
+Check for:
+1. Secrets exposed in client-side code
+2. Missing NEXT_PUBLIC_ prefix for public variables
+3. Hardcoded secrets in codebase
+4. Proper .gitignore configuration
+5. Sensitive data in error messages
+6. API keys with excessive permissions
+
+List any security risks and provide remediation steps."
+```
+
+**3. Route Protection Audit:**
+
+```
+Prompt: "Audit route protection implementation:
+
+Files to review:
+- proxy.ts
+- src/lib/supabase/middleware.ts
+- src/app/dashboard/page.tsx
+
+Check for:
+1. Unauthorized access to protected routes
+2. Public-only routes accessible when authenticated
+3. Race conditions in session refresh
+4. Missing redirects for unauthenticated users
+5. Client-side only protection (should be server-side)
+6. Bypass via direct API calls
+
+Test these scenarios:
+- Access /dashboard without auth
+- Access /login when authenticated
+- Modify cookies to bypass auth
+- Direct access to protected pages
+
+Provide test cases and fixes for any vulnerabilities."
+```
+
+---
+
+#### ⚡ Performance Review Prompts
+
+**4. Bundle Size Analysis:**
+
+```bash
+# First, analyze the production build
+npm run build
+
+# Review the build output and use this prompt:
+```
+
+```
+Prompt: "Analyze Next.js build output for performance issues:
+
+[Paste build output here showing route sizes and First Load JS]
+
+Check for:
+1. Routes exceeding 150kB First Load JS
+2. Duplicate dependencies across chunks
+3. Large client-side libraries (should use server components)
+4. Unnecessary client components ('use client')
+5. Missing code splitting opportunities
+6. Unused dependencies in package.json
+
+Recommendations:
+- Identify components that can be Server Components
+- Suggest dynamic imports for large libraries
+- Recommend bundle optimization strategies
+- Provide specific code changes to reduce bundle size"
+```
+
+**5. Rendering Performance:**
+
+```
+Prompt: "Review rendering performance for authentication flow:
+
+Files to review:
+- src/app/page.tsx
+- src/app/(auth)/login/page.tsx
+- src/app/(auth)/signup/page.tsx
+- src/app/dashboard/page.tsx
+- src/components/auth/*
+
+Check for:
+1. Server Components vs Client Components usage
+2. Unnecessary re-renders in client components
+3. Missing React.memo() for expensive components
+4. Inefficient state management
+5. Multiple useEffect calls causing cascading renders
+6. Large component trees that could be split
+7. Missing loading states causing layout shifts
+
+Provide:
+- Performance score (1-10)
+- Specific optimization recommendations
+- Code examples for improvements
+- Expected performance gains"
+```
+
+**6. Database Query Performance:**
+
+```
+Prompt: "Review Supabase queries for performance:
+
+Files to review:
+- src/lib/actions/auth.ts
+- src/lib/supabase/server.ts
+- src/lib/supabase/client.ts
+
+Check for:
+1. N+1 query problems
+2. Missing database indexes
+3. Overfetching data (selecting unnecessary columns)
+4. Unnecessary database calls
+5. Missing query caching opportunities
+6. Slow queries that could be optimized
+7. Missing connection pooling configuration
+
+Provide:
+- Query execution plan analysis
+- Index recommendations
+- Caching strategy suggestions
+- Code optimizations with examples"
+```
+
+---
+
+#### 🐛 Bug Detection Prompts
+
+**7. Edge Case Testing:**
+
+```
+Prompt: "Identify edge cases and potential bugs in authentication flow:
+
+Files to review:
+- src/lib/actions/auth.ts
+- src/components/auth/LoginForm.tsx
+- src/components/auth/SignupForm.tsx
+- src/components/auth/LogoutButton.tsx
+
+Test these edge cases:
+1. What happens if user submits form multiple times rapidly?
+2. What if Supabase is down or slow to respond?
+3. What if user navigates away during signup?
+4. What if user's session expires during form submission?
+5. What if email service fails to send confirmation?
+6. What if user clicks logout twice?
+7. What if user has slow/unstable internet?
+8. What if user disables JavaScript?
+9. What if user manipulates form data?
+10. What if database constraints fail?
+
+For each edge case:
+- Describe current behavior
+- Identify potential bugs
+- Provide recommended fixes with code"
+```
+
+**8. Error Handling Review:**
+
+```
+Prompt: "Audit error handling implementation:
+
+Files to review:
+- src/lib/actions/auth.ts
+- src/components/auth/*
+- src/app/error.tsx (if exists)
+
+Check for:
+1. Unhandled promise rejections
+2. Generic error messages (poor UX)
+3. Missing try-catch blocks
+4. Errors that crash the application
+5. Missing error boundaries
+6. Error states not displayed to users
+7. Errors logged with sensitive data
+8. Missing fallback UI for errors
+9. Network errors not handled
+10. Validation errors not user-friendly
+
+Provide:
+- List of missing error handlers
+- User-friendly error message examples
+- Error boundary implementation
+- Logging best practices"
+```
+
+**9. Form Validation Audit:**
+
+```
+Prompt: "Review form validation for completeness:
+
+Files to review:
+- src/components/auth/LoginForm.tsx
+- src/components/auth/SignupForm.tsx
+- src/lib/actions/auth.ts
+
+Check for:
+1. Client-side only validation (needs server-side too)
+2. Weak password requirements
+3. Missing email format validation
+4. XSS vulnerabilities in input sanitization
+5. Missing rate limiting on submissions
+6. Validation messages not accessible
+7. Edge cases in password confirmation
+8. Special characters handling in inputs
+9. Unicode/emoji in email addresses
+10. Very long input strings
+
+Provide:
+- Validation gaps identified
+- Regex patterns for validation
+- Server-side validation examples
+- Accessibility improvements"
+```
+
+---
+
+#### 🎨 Code Quality Review Prompts
+
+**10. TypeScript Type Safety:**
+
+```bash
+# First, enable strict mode and check for errors
+cat > tsconfig-strict-check.json << 'TSCONFIG_EOF'
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true
+  }
+}
+TSCONFIG_EOF
+
+# Run TypeScript with strict mode
+npx tsc --noEmit -p tsconfig-strict-check.json
+```
+
+```
+Prompt: "Review TypeScript usage for type safety:
+
+[Paste TypeScript errors from strict mode check]
+
+Files to review:
+- src/lib/actions/auth.ts
+- src/components/ui/*
+- src/hooks/useAuth.ts
+
+Check for:
+1. 'any' types used (should be avoided)
+2. Missing return type annotations
+3. Implicit any in function parameters
+4. Type assertions that could be narrowed
+5. Missing null/undefined checks
+6. Incomplete interface definitions
+7. Type widening issues
+8. Missing generic constraints
+9. Unsafe type casting
+10. Union types that could be discriminated
+
+Provide:
+- Type safety score (1-10)
+- Specific type improvements
+- Refactored code examples
+- Benefits of each improvement"
+```
+
+**11. Component Reusability & DRY Principle:**
+
+```
+Prompt: "Analyze code for reusability and DRY violations:
+
+Files to review:
+- src/components/ui/* (Button, Input, Select, Dropdown, Modal)
+- src/components/auth/*
+- src/lib/actions/auth.ts
+
+Check for:
+1. Duplicated code blocks (3+ lines)
+2. Similar components that could be unified
+3. Repeated logic that could be extracted
+4. Hardcoded values that should be constants
+5. Similar functions with different names
+6. Copy-pasted validation logic
+7. Repeated styling patterns
+8. Similar error handling code
+
+Provide:
+- DRY violations identified
+- Suggested abstractions
+- Refactored code examples
+- Reusable utility functions"
+```
+
+**12. Accessibility (WCAG) Compliance:**
+
+```
+Prompt: "Audit accessibility for WCAG 2.1 AA compliance:
+
+Files to review:
+- src/components/ui/Button.tsx
+- src/components/ui/Input.tsx
+- src/components/ui/Select.tsx
+- src/components/ui/Dropdown.tsx
+- src/components/ui/Modal.tsx
+- src/components/auth/*
+
+Check for:
+1. Missing ARIA labels
+2. Keyboard navigation support
+3. Focus management (especially in Modal)
+4. Color contrast ratios (AA standard)
+5. Screen reader announcements
+6. Form input associations (label + input)
+7. Error messages announced to screen readers
+8. Focus visible indicators
+9. Semantic HTML usage
+10. Loading states announced
+
+Test with:
+- Tab navigation only
+- Screen reader (NVDA/JAWS/VoiceOver)
+- Keyboard shortcuts (Enter, Escape, Arrow keys)
+- High contrast mode
+
+Provide:
+- Accessibility score (WCAG A/AA/AAA)
+- Specific WCAG violations
+- Code fixes with ARIA examples
+- Testing recommendations"
+```
+
+**13. SOLID Principles Review:**
+
+```
+Prompt: "Review code architecture for SOLID principles:
+
+Files to review:
+- src/lib/actions/auth.ts
+- src/components/auth/*
+- src/hooks/useAuth.ts
+
+Analyze each principle:
+
+1. Single Responsibility Principle (SRP):
+   - Does each function/component have one clear purpose?
+   - Are there functions doing multiple things?
+
+2. Open/Closed Principle (OCP):
+   - Can components be extended without modification?
+   - Are there hardcoded behaviors that should be configurable?
+
+3. Liskov Substitution Principle (LSP):
+   - Are derived components substitutable?
+   - Do component props violate expectations?
+
+4. Interface Segregation Principle (ISP):
+   - Are interfaces too large?
+   - Do components depend on props they don't use?
+
+5. Dependency Inversion Principle (DIP):
+   - Do components depend on abstractions or implementations?
+   - Can dependencies be injected?
+
+Provide:
+- SOLID score for each principle (1-10)
+- Violations identified
+- Refactoring recommendations
+- Architectural improvements"
+```
+
+**14. Code Maintainability:**
+
+```
+Prompt: "Assess code maintainability and developer experience:
+
+Files to review: All files created in Lesson 3
+
+Check for:
+1. Clear function and variable names
+2. Adequate code comments (not too many, not too few)
+3. Consistent code style
+4. Proper file organization
+5. Clear component responsibilities
+6. Documentation for complex logic
+7. Meaningful commit messages
+8. README documentation
+9. Inline TODO comments that need addressing
+10. Magic numbers/strings that need constants
+
+Rate each area (1-10):
+- Readability: ?/10
+- Documentation: ?/10
+- Organization: ?/10
+- Consistency: ?/10
+- Overall Maintainability: ?/10
+
+Provide:
+- Specific improvements needed
+- Documentation examples
+- Naming convention suggestions
+- Organization recommendations"
+```
+
+---
+
+#### 🚀 Running the AI Review
+
+**Step-by-step process:**
+
+```bash
+# 1. Run build and capture output
+npm run build > build-output.txt 2>&1
+
+# 2. Run TypeScript strict check
+npx tsc --noEmit -p tsconfig-strict-check.json > ts-strict-errors.txt 2>&1
+
+# 3. Run linter
+npm run lint > lint-output.txt 2>&1
+
+# 4. Run E2E tests
+npm run test:e2e > test-output.txt 2>&1
+
+# 5. Analyze bundle
+npx @next/bundle-analyzer > bundle-analysis.txt 2>&1
+
+# Review outputs
+echo "
+📊 Review Results Generated:
+- build-output.txt (bundle sizes, build warnings)
+- ts-strict-errors.txt (type safety issues)
+- lint-output.txt (code style issues)
+- test-output.txt (test results)
+- bundle-analysis.txt (bundle composition)
+
+Next Steps:
+1. Copy each prompt above to your AI assistant
+2. Include relevant file contents and output files
+3. Review AI suggestions carefully
+4. Implement critical fixes (security, bugs)
+5. Plan improvements for code quality
+6. Document any technical debt for later
+"
+```
+
+<details>
+<summary>📖 <strong>How to Use AI Review Effectively</strong></summary>
+
+### Best Practices for AI Code Review
+
+**1. Be Specific and Contextual:**
+- ✅ Provide actual file contents, not just file names
+- ✅ Include build outputs and error messages
+- ✅ Describe your application's purpose and users
+- ✅ Mention any specific concerns or known issues
+
+**2. Prioritize Findings:**
+```
+1. Critical (Fix immediately):
+   - Security vulnerabilities
+   - Data loss bugs
+   - Authentication bypasses
+
+2. High Priority (Fix before production):
+   - Performance issues affecting UX
+   - Accessibility violations (WCAG A)
+   - Error handling gaps
+
+3. Medium Priority (Plan for next sprint):
+   - Code quality improvements
+   - Refactoring opportunities
+   - Minor performance optimizations
+
+4. Low Priority (Technical debt backlog):
+   - Nice-to-have improvements
+   - Documentation enhancements
+   - Advanced optimizations
+```
+
+**3. Validate AI Suggestions:**
+- ❌ Don't blindly implement all suggestions
+- ✅ Understand WHY each change is recommended
+- ✅ Test thoroughly after implementing fixes
+- ✅ Consider your specific use case and constraints
+- ✅ Some suggestions may not apply to your context
+
+**4. Iterative Review Process:**
+```
+1. Run initial AI review on all categories
+2. Implement critical fixes
+3. Re-run affected tests
+4. Run AI review again on changed files
+5. Verify improvements
+6. Document remaining technical debt
+```
+
+**5. Create Action Items:**
+- Convert findings into GitHub issues
+- Tag by priority (P0, P1, P2, P3)
+- Assign to team members
+- Set deadlines based on priority
+- Track in project management tool
+
+**6. Learn from Reviews:**
+- Keep a "lessons learned" document
+- Update coding standards based on findings
+- Create reusable code snippets for common patterns
+- Share findings with team
+- Prevent similar issues in future lessons
+
+### Example Review Workflow
+
+```bash
+# 1. Create review branch
+git checkout -b review/lesson-3-ai-review
+
+# 2. Run all checks
+npm run build
+npm run lint
+npm run test:e2e
+
+# 3. Use AI prompts (copy from STEP 17 above)
+# - Start with Security Review (highest priority)
+# - Then Bug Detection
+# - Then Performance
+# - Finally Code Quality
+
+# 4. Document findings
+cat > REVIEW-FINDINGS.md << 'FINDINGS_EOF'
+# Lesson 3 AI Review Findings
+
+## Security Issues
+- [ ] Issue 1: [Description]
+  - Severity: Critical/High/Medium/Low
+  - Fix: [Description]
+
+## Performance Issues
+- [ ] Issue 1: [Description]
+  - Impact: [Description]
+  - Fix: [Description]
+
+## Bugs Found
+- [ ] Bug 1: [Description]
+  - Reproduction: [Steps]
+  - Fix: [Description]
+
+## Code Quality
+- [ ] Improvement 1: [Description]
+  - Benefit: [Description]
+  - Effort: High/Medium/Low
+FINDINGS_EOF
+
+# 5. Implement critical fixes
+# ... make changes ...
+
+# 6. Re-test
+npm run build
+npm run test:e2e
+
+# 7. Commit improvements
+git add -A
+git commit -m "fix: address AI review findings for Lesson 3
+
+Security:
+- Fixed [issue]
+
+Performance:
+- Optimized [component]
+
+Bugs:
+- Fixed [edge case]
+
+Code Quality:
+- Refactored [component] for better maintainability"
+
+# 8. Merge back to main branch
+git checkout main
+git merge review/lesson-3-ai-review
+```
+
+</details>
+
+<details>
+<summary>📖 <strong>Automated AI Review Integration (Advanced)</strong></summary>
+
+### GitHub Actions - Automated AI Review
+
+Create a workflow that runs AI review on every pull request:
+
+```yaml
+# .github/workflows/ai-review.yml
+name: AI Code Review
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run build
+        run: npm run build > build-output.txt 2>&1
+
+      - name: Run TypeScript strict check
+        run: |
+          cat > tsconfig-strict-check.json << 'EOF'
+          {
+            "extends": "./tsconfig.json",
+            "compilerOptions": {
+              "strict": true,
+              "noUncheckedIndexedAccess": true
+            }
+          }
+          EOF
+          npx tsc --noEmit -p tsconfig-strict-check.json > ts-errors.txt 2>&1 || true
+
+      - name: Run linter
+        run: npm run lint > lint-output.txt 2>&1 || true
+
+      - name: Run tests
+        run: npm run test:e2e > test-output.txt 2>&1 || true
+
+      - name: Upload review artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: review-outputs
+          path: |
+            build-output.txt
+            ts-errors.txt
+            lint-output.txt
+            test-output.txt
+
+      - name: Comment PR with review prompt
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const buildOutput = fs.readFileSync('build-output.txt', 'utf8');
+
+            const comment = `## 🤖 AI Review Prompt
+
+            Use this prompt with your AI assistant to review this PR:
+
+            \`\`\`
+            Review this Next.js pull request for security, performance, and code quality:
+
+            Build Output:
+            ${buildOutput}
+
+            Check for:
+            1. Security vulnerabilities
+            2. Performance regressions
+            3. Type safety issues
+            4. Code quality problems
+
+            Provide specific, actionable feedback.
+            \`\`\`
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+```
+
+### Pre-commit Hook - Quick Security Check
+
+```bash
+# .husky/pre-commit
+#!/bin/sh
+
+echo "🔍 Running quick security check..."
+
+# Check for common security issues
+if grep -r "process.env" src/ --include="*.tsx" --include="*.ts" | grep -v "NEXT_PUBLIC_"; then
+  echo "❌ Error: Found non-public env variables in client code!"
+  echo "   Only NEXT_PUBLIC_* variables should be used in client components"
+  exit 1
+fi
+
+# Check for console.log in production code
+if grep -r "console.log" src/ --include="*.tsx" --include="*.ts" | grep -v "// TODO:"; then
+  echo "⚠️  Warning: Found console.log statements. Remove before production."
+fi
+
+# Check for any 'any' types
+if grep -r ": any" src/ --include="*.tsx" --include="*.ts" | grep -v "@ts"; then
+  echo "⚠️  Warning: Found 'any' types. Consider using specific types."
+fi
+
+echo "✅ Security check passed!"
+```
+
+</details>
+
+---
+
+### ✅ AI Review Checklist
+
+Add these items to your lesson completion checklist:
+
+- [ ] Ran Security Review prompts (authentication, environment, routes)
+- [ ] Ran Performance Review prompts (bundle, rendering, database)
+- [ ] Ran Bug Detection prompts (edge cases, errors, validation)
+- [ ] Ran Code Quality prompts (TypeScript, DRY, accessibility, SOLID)
+- [ ] Documented all findings in REVIEW-FINDINGS.md
+- [ ] Prioritized issues (Critical → Low)
+- [ ] Fixed critical security issues
+- [ ] Fixed critical bugs
+- [ ] Addressed high-priority performance issues
+- [ ] Re-ran build and tests after fixes
+- [ ] Created GitHub issues for remaining items
+- [ ] Updated documentation with improvements
+- [ ] Code is production-ready
+
+---
+
+## 📊 Expected Review Outcomes
+
+After completing AI review, you should have:
+
+**Security:**
+- ✅ Zero critical vulnerabilities
+- ✅ CSRF protection verified
+- ✅ XSS prevention confirmed
+- ✅ Environment variables properly secured
+- ✅ Route protection working correctly
+
+**Performance:**
+- ✅ Bundle size under 200kB First Load JS per route
+- ✅ Server Components used where possible
+- ✅ Minimal client-side JavaScript
+- ✅ Database queries optimized
+- ✅ No unnecessary re-renders
+
+**Bugs:**
+- ✅ All edge cases handled
+- ✅ Error boundaries implemented
+- ✅ Form validation complete
+- ✅ Loading states prevent race conditions
+- ✅ E2E tests all passing
+
+**Code Quality:**
+- ✅ TypeScript strict mode compliant
+- ✅ No DRY violations
+- ✅ WCAG AA accessible
+- ✅ SOLID principles followed
+- ✅ Maintainable and well-documented
+
+---
+
+**🎯 Key Takeaway:** Regular AI-assisted code reviews catch issues early, improve code quality, and make your codebase more maintainable. Use these prompts after every lesson for best results!
 
 ---
 
