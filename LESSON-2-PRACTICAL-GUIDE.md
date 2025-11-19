@@ -9,16 +9,17 @@
 
 This lesson will create:
 
-✔ **Supabase project** on supabase.com (manual web setup)  
-✔ **Database tables** with `prj_` prefix following relational model  
-✔ **Row Level Security (RLS)** policies for data protection  
-✔ **RPC functions** for type-safe database queries  
-✔ **Supabase client** in Next.js with new publishable key method  
-✔ **Database migrations** as SQL files for version control  
-✔ **TypeScript types** synced with database schema  
-✔ **Test queries** to verify connection  
-✔ **Environment variables** properly configured  
-✔ **Working authentication** setup ready  
+✔ **Supabase project** on supabase.com (manual web setup)
+✔ **Database tables** with `prj_` prefix following relational model
+✔ **Row Level Security (RLS)** policies for data protection
+✔ **RPC functions** for type-safe database queries
+✔ **Supabase clients** (browser & server) with new publishable key method
+✔ **Next.js 16 proxy.ts** for automatic session refresh
+✔ **Middleware helper** for cookie management
+✔ **Database migrations** as SQL files for version control
+✔ **TypeScript types** synced with database schema
+✔ **Environment variables** properly configured
+✔ **Session infrastructure** ready for authentication (Lesson 3)  
 
 **Database Schema:**
 - ✔ `prj_projects` - Project management
@@ -1382,7 +1383,341 @@ cookies: {
 
 ---
 
-### 🎯 STEP 10 — Create Database TypeScript Types
+### 🎯 STEP 10 — Create Middleware Helper for Session Refresh
+
+```bash
+cat > src/lib/supabase/middleware.ts << 'MIDDLEWARE_EOF'
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+
+/**
+ * Updates and refreshes Supabase session in middleware/proxy
+ *
+ * This function:
+ * 1. Creates a Supabase server client with cookie handlers
+ * 2. Refreshes the auth token if expired (via getUser())
+ * 3. Updates cookies in both request and response
+ * 4. Returns the response with refreshed session
+ *
+ * Why this is needed:
+ * - Server Components cannot write cookies
+ * - Middleware/proxy can intercept requests and refresh tokens
+ * - Prevents expired session errors in Server Components
+ *
+ * @param request - The incoming Next.js request
+ * @returns NextResponse with updated cookies
+ */
+export async function updateSession(request: NextRequest) {
+  // Create a response object that we'll modify
+  let supabaseResponse = NextResponse.next({
+    request,
+  })
+
+  // Create Supabase client with custom cookie handlers
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!,
+    {
+      cookies: {
+        // Read all cookies from the request
+        getAll() {
+          return request.cookies.getAll()
+        },
+        // Write cookies to both request and response
+        setAll(cookiesToSet) {
+          // Set cookies on the request (for Server Components to read)
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          )
+
+          // Create new response with updated request cookies
+          supabaseResponse = NextResponse.next({
+            request,
+          })
+
+          // Set cookies on the response (for browser to receive)
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  // IMPORTANT: Refresh session if expired
+  // This triggers the cookie refresh via setAll above
+  // getUser() is secure - it validates the JWT signature
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  // Optional: Add user info to request headers for Server Components
+  // This avoids additional database calls in components
+  if (user) {
+    supabaseResponse.headers.set('x-user-id', user.id)
+    supabaseResponse.headers.set('x-user-email', user.email || '')
+  }
+
+  return supabaseResponse
+}
+
+/**
+ * Protected route checker
+ * Use this in your proxy.ts to redirect unauthenticated users
+ *
+ * Example:
+ * const response = await updateSession(request)
+ * const isProtected = isProtectedRoute(request.nextUrl.pathname)
+ * if (isProtected && !response.headers.get('x-user-id')) {
+ *   return NextResponse.redirect(new URL('/login', request.url))
+ * }
+ */
+export function isProtectedRoute(pathname: string): boolean {
+  const protectedPaths = [
+    '/dashboard',
+    '/projects',
+    '/profile',
+    '/settings',
+  ]
+
+  return protectedPaths.some(path => pathname.startsWith(path))
+}
+
+/**
+ * Public-only route checker
+ * Use this to redirect authenticated users away from login/signup
+ *
+ * Example:
+ * const isPublicOnly = isPublicOnlyRoute(request.nextUrl.pathname)
+ * if (isPublicOnly && response.headers.get('x-user-id')) {
+ *   return NextResponse.redirect(new URL('/dashboard', request.url))
+ * }
+ */
+export function isPublicOnlyRoute(pathname: string): boolean {
+  const publicOnlyPaths = [
+    '/login',
+    '/signup',
+    '/forgot-password',
+  ]
+
+  return publicOnlyPaths.some(path => pathname.startsWith(path))
+}
+MIDDLEWARE_EOF
+
+# Verify file created
+cat src/lib/supabase/middleware.ts | head -20
+```
+
+<details>
+<summary>📖 <strong>Why Server Components Can't Write Cookies</strong></summary>
+
+### The Cookie Problem in Next.js
+
+**Server Components are read-only:**
+- They run on the server during rendering
+- They cannot modify the HTTP response
+- They cannot set cookies directly
+
+**Why this matters for auth:**
+```typescript
+// ❌ This DOESN'T work in Server Component
+export default async function Page() {
+  const supabase = createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  // If session is expired, Supabase needs to refresh it
+  // But Server Component can't write the new cookie!
+  // Result: User appears logged out
+}
+```
+
+**The solution: Middleware/Proxy**
+- Runs BEFORE Server Components render
+- Has full access to request/response
+- Can write cookies
+- Refreshes session automatically
+
+**How it works:**
+1. **Request comes in** → Proxy intercepts it
+2. **Check session** → Call `getUser()` to validate token
+3. **Token expired?** → Supabase automatically refreshes it
+4. **Write new cookie** → Proxy updates response cookies
+5. **Continue to Server Component** → Component sees fresh session
+
+**Cookie flow:**
+```
+Browser → Proxy (refresh token if needed) → Server Component (read fresh session)
+         ↓
+         Write new cookie to response
+         ↓
+Browser receives updated cookie
+```
+
+**Key benefits:**
+- ✅ Sessions never expire unexpectedly
+- ✅ Server Components always see valid sessions
+- ✅ Users stay logged in seamlessly
+- ✅ No manual refresh logic needed
+
+</details>
+
+---
+
+### 🎯 STEP 11 — Create Proxy for Automatic Session Refresh (Next.js 16)
+
+```bash
+cat > proxy.ts << 'PROXY_EOF'
+import { type NextRequest } from 'next/server'
+import { updateSession } from '@/lib/supabase/middleware'
+
+/**
+ * Next.js 16 Proxy
+ *
+ * Replaces middleware.ts in Next.js 16
+ * Runs on Node.js runtime (not Edge)
+ *
+ * Purpose:
+ * - Refresh Supabase auth sessions automatically
+ * - Update cookies for authenticated users
+ * - Runs before every request that matches the config
+ *
+ * Why "proxy" not "middleware"?
+ * - Clearer naming for network boundary
+ * - Node.js runtime for predictable behavior
+ * - Separates routing logic from app logic
+ */
+export async function proxy(request: NextRequest) {
+  // Refresh Supabase session and update cookies
+  return await updateSession(request)
+}
+
+/**
+ * Config: Which routes should trigger this proxy
+ *
+ * Matches all routes EXCEPT:
+ * - Static files (_next/static)
+ * - Image optimization (_next/image)
+ * - Favicon
+ * - Public images (svg, png, jpg, etc.)
+ *
+ * This ensures session refresh on every page navigation
+ * but skips unnecessary calls for static assets
+ */
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - *.svg, *.png, *.jpg, *.jpeg, *.gif, *.webp (image files)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+}
+PROXY_EOF
+
+# Verify file created
+cat proxy.ts
+```
+
+<details>
+<summary>📖 <strong>Next.js 16: proxy.ts vs middleware.ts</strong></summary>
+
+### What Changed in Next.js 16?
+
+**Old approach (Next.js 15 and earlier):**
+```typescript
+// middleware.ts
+export function middleware(request: NextRequest) {
+  // ... logic
+}
+```
+
+**New approach (Next.js 16):**
+```typescript
+// proxy.ts
+export function proxy(request: NextRequest) {
+  // ... same logic
+}
+```
+
+**Why the change?**
+
+**1. Naming Confusion**
+- "Middleware" is confusing (like Express middleware)
+- Developers expected it to work like app-level middleware
+- Actually runs at network boundary, not in app
+
+**2. Runtime Clarity**
+- `proxy.ts` runs on **Node.js runtime**
+- More predictable than Edge runtime
+- Better for auth, database calls
+- Full Node.js API access
+
+**3. Separation of Concerns**
+- **Proxy**: Network boundary (routing, redirects, session refresh)
+- **Server Actions**: App logic (mutations, business logic)
+- **Route Handlers**: API endpoints (REST, webhooks)
+
+**Migration:**
+```bash
+# Simple rename
+mv middleware.ts proxy.ts
+
+# Update function name
+# Old: export function middleware
+# New: export function proxy
+```
+
+**When to use proxy.ts:**
+- ✅ Authentication session refresh (our use case)
+- ✅ Redirects and rewrites
+- ✅ Header modifications
+- ✅ Logging and analytics
+- ✅ A/B testing routing
+
+**When NOT to use proxy.ts:**
+- ❌ Heavy database queries (use Server Actions)
+- ❌ Complex business logic (use Route Handlers)
+- ❌ Data fetching (use Server Components)
+
+**Matcher config explained:**
+```typescript
+matcher: [
+  // Match everything EXCEPT static files
+  '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg)$).*)',
+]
+```
+
+This regex:
+- `(?!...)` - Negative lookahead (exclude these patterns)
+- `_next/static` - Next.js static files (JS, CSS bundles)
+- `_next/image` - Optimized images
+- `favicon.ico` - Favicon
+- `.*\\.(?:svg|png|jpg)$` - Image files
+
+**Why exclude static files?**
+- No session needed for images/CSS/JS
+- Reduces unnecessary proxy calls
+- Better performance
+- Lower serverless function costs
+
+**Security note:**
+```typescript
+// ✅ SECURE: getUser() validates JWT signature
+const { data: { user } } = await supabase.auth.getUser()
+
+// ❌ INSECURE in proxy: getSession() doesn't revalidate
+const { data: { session } } = await supabase.auth.getSession()
+```
+
+Always use `getUser()` in proxy/middleware for security!
+
+</details>
+
+---
+
+### 🎯 STEP 12 — Create Database TypeScript Types
 
 ```bash
 # Create placeholder types file (will be auto-generated later)
@@ -1787,7 +2122,7 @@ supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.
 
 ---
 
-### 🎯 STEP 11 — Create Example RPC Usage File
+### 🎯 STEP 13 — Create Example RPC Usage File
 
 ```bash
 cat > src/lib/supabase/rpc-examples.ts << 'RPC_EXAMPLES_EOF'
@@ -2133,7 +2468,7 @@ await supabase.rpc('create_project', {
 
 ---
 
-### 🎯 STEP 12 — Verify Installation
+### 🎯 STEP 14 — Verify Installation
 
 ```bash
 # Check all files created
@@ -2141,6 +2476,10 @@ echo "📁 Checking Supabase files..."
 ls -lh src/lib/supabase/
 ls -lh src/types/
 ls -lh supabase/migrations/
+
+echo ""
+echo "🔄 Checking proxy file..."
+ls -lh proxy.ts
 
 echo ""
 echo "📦 Checking package installation..."
@@ -2159,6 +2498,7 @@ echo "✅ Verification complete!"
 📁 Checking Supabase files...
 client.ts
 server.ts
+middleware.ts
 rpc-examples.ts
 
 database.ts
@@ -2166,6 +2506,9 @@ database.ts
 001_initial_schema.sql
 002_rls_policies.sql
 003_rpc_functions.sql
+
+🔄 Checking proxy file...
+proxy.ts
 
 📦 Checking package installation...
 "@supabase/supabase-js": "^2.x.x"
@@ -2204,9 +2547,24 @@ SUPABASE_SERVICE_ROLE_KEY=...
 - [ ] Created `src/lib/supabase/` directory
 - [ ] Created `src/lib/supabase/client.ts` (browser client)
 - [ ] Created `src/lib/supabase/server.ts` (server client)
+- [ ] Created `src/lib/supabase/middleware.ts` (session refresh helper)
 - [ ] Created `src/lib/supabase/rpc-examples.ts` (usage examples)
 - [ ] Created `src/types/database.ts` (type definitions)
 - [ ] Created `supabase/migrations/` directory
+- [ ] Created `proxy.ts` at project root (Next.js 16)
+
+### 🎯 Proxy & Session Management (Next.js 16)
+
+- [ ] Created `src/lib/supabase/middleware.ts` with `updateSession()` function
+- [ ] Created `isProtectedRoute()` helper function
+- [ ] Created `isPublicOnlyRoute()` helper function
+- [ ] Created `proxy.ts` at root with `proxy()` function
+- [ ] Configured matcher to exclude static files
+- [ ] Proxy uses `updateSession()` from middleware helper
+- [ ] Cookie handlers for `getAll()` and `setAll()` implemented
+- [ ] Session refresh uses `getUser()` (secure, not `getSession()`)
+- [ ] Request headers set for user info (`x-user-id`, `x-user-email`)
+- [ ] Understands difference between proxy.ts and middleware.ts
 
 ### 🎯 Database Schema
 
@@ -2310,6 +2668,8 @@ SUPABASE_SERVICE_ROLE_KEY=...
 ✅ **TypeScript Types** - Full type safety for queries
 ✅ **Supabase Clients** - Browser and server integration
 ✅ **Migration Files** - Version-controlled database changes
+✅ **Next.js 16 Proxy** - Automatic session refresh infrastructure
+✅ **Middleware Helper** - Cookie management for authentication
 
 **Key Concepts Mastered:**
 - PostgreSQL relational database design
@@ -2322,6 +2682,11 @@ SUPABASE_SERVICE_ROLE_KEY=...
 - UUID primary keys vs SERIAL
 - Triggers for automatic field updates
 - Database migrations and version control
+- **Next.js 16 proxy.ts** (replaces middleware.ts)
+- **Session refresh** with cookie management
+- **Server Components cookie limitation** and workarounds
+- **Node.js runtime** vs Edge runtime
+- **Protected routes infrastructure** (helpers ready for Lesson 3)
 
 **Next Lesson:** Module 1, Lesson 3 - Authentication with Supabase Auth (Email/Password, OAuth, Protected Routes)
 
