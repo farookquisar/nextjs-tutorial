@@ -171,15 +171,84 @@
 
 ---
 
+## Lesson 5: Task Management with Best Practices
+
+**What was built:**
+- Task CRUD operations with `prj_tasks` table
+- Extended constants file (from Lesson 1) with task-specific values
+- Next.js 16 cache components with `use cache` directive
+- React 19.2 `useEffectEvent` hook implementation
+- RPC functions for task queries and statistics
+- Task management UI with filters
+- SOLID principles and DRY code throughout
+
+**Database changes:**
+- Added RLS policies for `prj_tasks` table
+- Created `get_tasks_by_project()` RPC function with filters
+- Created `get_task_stats()` RPC function for analytics
+- Added indexes for performance (status, priority, due_date)
+
+**Key files created:**
+- `src/lib/constants.ts` - ALL static values (no magic strings/numbers)
+- `src/lib/actions/tasks.ts` - Task CRUD Server Actions with cache
+- `src/lib/validations/task.ts` - Zod schemas using constants
+- `src/lib/types/database.ts` - Task types and interfaces
+- `src/components/features/tasks/TaskCard.tsx` - Display one task
+- `src/components/features/tasks/TaskList.tsx` - Display task list
+- `src/components/features/tasks/TaskForm.tsx` - Create/edit task form
+- `src/components/features/tasks/TaskStats.tsx` - Task statistics dashboard
+- `src/app/dashboard/projects/[id]/tasks/page.tsx` - Tasks list (cached)
+- `src/app/dashboard/projects/[id]/tasks/new/page.tsx` - Create task
+- `src/app/dashboard/projects/[id]/tasks/[taskId]/page.tsx` - View task (cached)
+- `src/app/dashboard/projects/[id]/tasks/[taskId]/edit/page.tsx` - Edit task
+- `src/hooks/useTaskTimer.ts` - Demo of useEffectEvent
+- `supabase/migrations/003_task_rls_and_rpc.sql` - RLS + RPC functions
+- `next.config.ts` - Updated with `cacheComponents: true`
+
+**Key concepts:**
+- **Constants Management** - Single source of truth for all static values
+- **Next.js 16 Cache Components** - `use cache` directive for performance
+- **Partial Prerendering (PPR)** - Mix static and dynamic content
+- **React 19.2 useEffectEvent** - Avoid stale closures in effects
+- **SOLID Principles** - Single Responsibility Principle (SRP)
+- **DRY Principle** - Don't Repeat Yourself
+- **No Magic Strings** - All values from constants.ts
+- **Type Safety** - TypeScript + constants = autocomplete everywhere
+- **Cache Invalidation** - `revalidateTag()` after mutations
+- **RPC Functions** - Complex task queries on database server
+
+**Task features:**
+- Create tasks with title, description, status, priority, due date
+- Link tasks to projects (foreign key relationship)
+- Filter tasks by status, priority, overdue
+- Task statistics dashboard (counts, completion rate)
+- Overdue detection (tasks past due date)
+- Sort by priority and due date
+- Full CRUD with RLS protection
+
+**Production best practices introduced:**
+- ✅ All static values in `constants.ts` (routes, labels, colors, messages)
+- ✅ Type-safe constants with `as const` and exported types
+- ✅ Next.js 16 cache for read operations
+- ✅ Cache invalidation with tags
+- ✅ SOLID principles (SRP, DRY)
+- ✅ No magic strings or numbers anywhere
+- ✅ Validation limits as constants
+- ✅ Single Responsibility per component
+
+**Technologies:** Next.js 16 Cache, React 19.2 useEffectEvent, Zod, RPC Functions, SOLID, DRY
+
+---
+
 ## Learning Progression Summary
 
-**Lesson 1:** Setup → Next.js project foundation
+**Lesson 1:** Setup → Next.js project foundation + constants.ts
 **Lesson 2:** Database → Supabase tables, RLS, migrations
 **Lesson 3:** Authentication → Login, signup, protected routes, UI components, E2E testing
 **Lesson 4:** CRUD → Full project management with Server Actions, validation, analytics
+**Lesson 5:** Tasks → Task CRUD, Next.js 16 cache, React 19.2 useEffectEvent, SOLID/DRY best practices
 
 **Next Lesson Ideas:**
-- **Lesson 5:** Task Management - CRUD for prj_tasks table with foreign keys
 - **Lesson 6:** Project Members - Many-to-many relationships with prj_project_members
 - **Lesson 7:** Real-time Updates - Supabase subscriptions for live data
 - **Lesson 8:** File Uploads - Supabase Storage for project attachments
@@ -242,3 +311,4 @@
 - `LESSON-2-PRACTICAL-GUIDE.md`
 - `LESSON-3-PRACTICAL-GUIDE.md`
 - `LESSON-4-PRACTICAL-GUIDE.md`
+- `LESSON-5-PRACTICAL-GUIDE.md`
