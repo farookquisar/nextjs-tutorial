@@ -24,7 +24,7 @@ This lesson will create:
 
 ## ✅ 2. CODE / STEPS (ALL BASH ONLY)
 
-### STEP 1 — Create Next.js 16 App with src directory
+### 🎯 STEP 1 — Create Next.js 16 App with src directory
 
 ```bash
 npx create-next-app@latest . \
@@ -51,7 +51,7 @@ npx create-next-app@latest . \
 
 ---
 
-### STEP 2 — Verify Versions
+### 🎯 STEP 2 — Verify Versions
 
 ```bash
 # Check Node.js version
@@ -73,7 +73,7 @@ cat package.json | grep -E "(next|react)"
 
 ---
 
-### STEP 3 — Create Folder Structure
+### 🎯 STEP 3 — Create Folder Structure
 
 ```bash
 # Create all folders at once
@@ -114,7 +114,7 @@ src/utils
 
 ---
 
-### STEP 4 — Create Constants File
+### 🎯 STEP 4 — Create Constants File
 
 ```bash
 cat > src/constants/index.ts << 'CONSTANTS_EOF'
@@ -285,7 +285,7 @@ cat src/constants/index.ts | head -20
 
 ---
 
-### STEP 5 — Create TypeScript Types
+### 🎯 STEP 5 — Create TypeScript Types
 
 ```bash
 cat > src/types/index.ts << 'TYPES_EOF'
@@ -467,7 +467,7 @@ cat src/types/index.ts | head -20
 
 ---
 
-### STEP 6 — Configure Next.js 16 Cache Components
+### 🎯 STEP 6 — Configure Next.js 16 Cache Components
 
 ```bash
 cat > next.config.ts << 'CONFIG_EOF'
@@ -503,7 +503,7 @@ cat next.config.ts
 
 ---
 
-### STEP 7 — Update Layout (Remove Google Fonts, Use Import Alias)
+### 🎯 STEP 7 — Update Layout (Remove Google Fonts, Use Import Alias)
 
 ```bash
 cat > src/app/layout.tsx << 'LAYOUT_EOF'
@@ -536,7 +536,7 @@ cat src/app/layout.tsx
 
 ---
 
-### STEP 8 — Create Home Page Using Constants
+### 🎯 STEP 8 — Create Home Page Using Constants
 
 ```bash
 cat > src/app/page.tsx << 'PAGE_EOF'
@@ -585,7 +585,7 @@ cat src/app/page.tsx
 
 ---
 
-### STEP 9 — Create Environment Variables Template
+### 🎯 STEP 9 — Create Environment Variables Template
 
 ```bash
 cat > .env.local.example << 'ENV_EOF'
@@ -606,7 +606,7 @@ cat .env.local.example
 
 ---
 
-### STEP 10 — Update .gitignore
+### 🎯 STEP 10 — Update .gitignore
 
 ```bash
 cat >> .gitignore << 'GITIGNORE_EOF'
@@ -626,7 +626,7 @@ tail -10 .gitignore
 
 ---
 
-### STEP 11 — Build the Project
+### 🎯 STEP 11 — Build the Project
 
 ```bash
 npm run build
@@ -644,7 +644,7 @@ Route (app)
 
 ---
 
-### STEP 12 — Test Development Server
+### 🎯 STEP 12 — Test Development Server
 
 ```bash
 # Start dev server
