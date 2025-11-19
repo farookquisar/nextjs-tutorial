@@ -1,6 +1,6 @@
 # 🔧 Reusable Features Reference
 
-**Version:** Module 1, Lessons 1-2
+**Version:** Module 1, Lessons 1-3
 **Last Updated:** 2025-11-19
 **Purpose:** Copy-paste ready code patterns and configurations for other projects
 
@@ -39,6 +39,13 @@
 18. [UUID vs Auto-increment IDs](#18-uuid-vs-auto-increment-ids)
 19. [Database Triggers for Updated_at](#19-database-triggers-for-updated_at)
 20. [Migration File Naming](#20-migration-file-naming)
+
+### UI Components (Lesson 3)
+21. [Reusable Button Component](#21-reusable-button-component)
+22. [Reusable Input Component](#22-reusable-input-component)
+23. [Reusable Select Component](#23-reusable-select-component)
+24. [Reusable Dropdown Component](#24-reusable-dropdown-component)
+25. [Reusable Modal Component](#25-reusable-modal-component)
 
 ---
 
@@ -1177,6 +1184,633 @@ supabase/migrations/
 
 ---
 
+## UI Components (Lesson 3)
+
+### 21. Reusable Button Component
+
+**What:** Production-ready button component with variants, sizes, and loading states.
+
+**When to use:** All buttons in your app for consistency.
+
+**File:** `src/components/ui/Button.tsx`
+
+```typescript
+import { ButtonHTMLAttributes, forwardRef } from 'react'
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'default' | 'outline' | 'ghost' | 'danger'
+  size?: 'sm' | 'md' | 'lg'
+  isLoading?: boolean
+}
+
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({
+    children,
+    variant = 'default',
+    size = 'md',
+    isLoading = false,
+    disabled,
+    className = '',
+    ...props
+  }, ref) => {
+    const baseStyles = 'inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none'
+
+    const variants = {
+      default: 'bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500',
+      outline: 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus-visible:ring-gray-500',
+      ghost: 'text-gray-700 hover:bg-gray-100 focus-visible:ring-gray-500',
+      danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500',
+    }
+
+    const sizes = {
+      sm: 'px-3 py-1.5 text-sm rounded-md',
+      md: 'px-4 py-2 text-base rounded-md',
+      lg: 'px-6 py-3 text-lg rounded-lg',
+    }
+
+    return (
+      <button
+        ref={ref}
+        disabled={disabled || isLoading}
+        className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
+        {...props}
+      >
+        {isLoading ? (
+          <>
+            <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Loading...
+          </>
+        ) : (
+          children
+        )}
+      </button>
+    )
+  }
+)
+
+Button.displayName = 'Button'
+```
+
+**Usage:**
+
+```typescript
+import { Button } from '@/components/ui/Button'
+
+<Button onClick={handleClick}>Click Me</Button>
+<Button variant="outline">Secondary</Button>
+<Button variant="danger">Delete</Button>
+<Button size="lg" isLoading={loading}>Submit</Button>
+```
+
+**Benefits:**
+- ✅ Consistent styling across all buttons
+- ✅ Built-in loading spinner
+- ✅ Accessible with focus states
+- ✅ Type-safe with TypeScript
+- ✅ Easy to customize with className
+
+---
+
+### 22. Reusable Input Component
+
+**What:** Form input with label, error handling, and helper text.
+
+**When to use:** All text inputs in forms.
+
+**File:** `src/components/ui/Input.tsx`
+
+```typescript
+import { InputHTMLAttributes, forwardRef } from 'react'
+
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  error?: string
+  helperText?: string
+}
+
+export const Input = forwardRef<HTMLInputElement, InputProps>(
+  ({ label, error, helperText, className = '', ...props }, ref) => {
+    const inputId = props.id || props.name
+
+    return (
+      <div className="w-full">
+        {label && (
+          <label
+            htmlFor={inputId}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            {label}
+          </label>
+        )}
+        <input
+          ref={ref}
+          id={inputId}
+          className={`
+            w-full px-3 py-2 border rounded-md shadow-sm
+            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+            disabled:bg-gray-100 disabled:cursor-not-allowed
+            ${error ? 'border-red-500' : 'border-gray-300'}
+            ${className}
+          `}
+          {...props}
+        />
+        {error && (
+          <p className="mt-1 text-sm text-red-600">{error}</p>
+        )}
+        {helperText && !error && (
+          <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+        )}
+      </div>
+    )
+  }
+)
+
+Input.displayName = 'Input'
+```
+
+**Usage:**
+
+```typescript
+import { Input } from '@/components/ui/Input'
+
+<Input
+  name="email"
+  label="Email Address"
+  type="email"
+  error={errors.email}
+  helperText="We'll never share your email"
+/>
+```
+
+**Benefits:**
+- ✅ Automatic label association
+- ✅ Error state handling
+- ✅ Helper text support
+- ✅ Accessible with proper ARIA
+- ✅ Type-safe
+
+---
+
+### 23. Reusable Select Component
+
+**What:** Dropdown select with options array and error handling.
+
+**When to use:** Dropdown selections in forms.
+
+**File:** `src/components/ui/Select.tsx`
+
+```typescript
+import { SelectHTMLAttributes, forwardRef } from 'react'
+
+interface SelectOption {
+  value: string
+  label: string
+  disabled?: boolean
+}
+
+interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string
+  error?: string
+  helperText?: string
+  options: SelectOption[]
+  placeholder?: string
+}
+
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(
+  ({ label, error, helperText, options, placeholder, className = '', ...props }, ref) => {
+    const selectId = props.id || props.name
+
+    return (
+      <div className="w-full">
+        {label && (
+          <label
+            htmlFor={selectId}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            {label}
+          </label>
+        )}
+        <select
+          ref={ref}
+          id={selectId}
+          className={`
+            w-full px-3 py-2 border rounded-md shadow-sm
+            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+            disabled:bg-gray-100 disabled:cursor-not-allowed
+            ${error ? 'border-red-500' : 'border-gray-300'}
+            ${className}
+          `}
+          {...props}
+        >
+          {placeholder && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
+          {options.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={option.disabled}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {error && (
+          <p className="mt-1 text-sm text-red-600">{error}</p>
+        )}
+        {helperText && !error && (
+          <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+        )}
+      </div>
+    )
+  }
+)
+
+Select.displayName = 'Select'
+```
+
+**Usage:**
+
+```typescript
+import { Select } from '@/components/ui/Select'
+
+<Select
+  name="role"
+  label="User Role"
+  placeholder="Select a role"
+  options={[
+    { value: 'owner', label: 'Owner' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'member', label: 'Member' },
+    { value: 'viewer', label: 'Viewer', disabled: true },
+  ]}
+  error={errors.role}
+/>
+```
+
+**Benefits:**
+- ✅ Type-safe options array
+- ✅ Disabled options support
+- ✅ Error handling
+- ✅ Placeholder support
+- ✅ Consistent with Input component
+
+---
+
+### 24. Reusable Dropdown Component
+
+**What:** Dropdown menu with click-outside detection and keyboard support.
+
+**When to use:** Action menus, user menus, context menus.
+
+**File:** `src/components/ui/Dropdown.tsx`
+
+```typescript
+'use client'
+
+import { useState, useRef, useEffect, ReactNode } from 'react'
+
+interface DropdownItem {
+  label: string
+  onClick: () => void
+  icon?: ReactNode
+  danger?: boolean
+  disabled?: boolean
+}
+
+interface DropdownProps {
+  trigger: ReactNode
+  items: DropdownItem[]
+  align?: 'left' | 'right'
+}
+
+export function Dropdown({ trigger, items, align = 'right' }: DropdownProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen])
+
+  // Close on Escape key
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div className="relative inline-block" ref={dropdownRef}>
+      <div onClick={() => setIsOpen(!isOpen)}>
+        {trigger}
+      </div>
+
+      {isOpen && (
+        <div
+          className={`
+            absolute z-50 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5
+            ${align === 'right' ? 'right-0' : 'left-0'}
+          `}
+        >
+          <div className="py-1" role="menu">
+            {items.map((item, index) => (
+              <button
+                key={index}
+                onClick={() => {
+                  if (!item.disabled) {
+                    item.onClick()
+                    setIsOpen(false)
+                  }
+                }}
+                disabled={item.disabled}
+                className={`
+                  w-full text-left px-4 py-2 text-sm flex items-center gap-2
+                  transition-colors
+                  ${item.danger
+                    ? 'text-red-700 hover:bg-red-50'
+                    : 'text-gray-700 hover:bg-gray-100'
+                  }
+                  ${item.disabled
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'cursor-pointer'
+                  }
+                `}
+                role="menuitem"
+              >
+                {item.icon && <span>{item.icon}</span>}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+**Usage:**
+
+```typescript
+import { Dropdown } from '@/components/ui/Dropdown'
+import { Button } from '@/components/ui/Button'
+
+<Dropdown
+  trigger={<Button>Actions</Button>}
+  items={[
+    { label: 'Edit', onClick: () => handleEdit() },
+    { label: 'Duplicate', onClick: () => handleDuplicate() },
+    { label: 'Delete', onClick: () => handleDelete(), danger: true },
+  ]}
+  align="right"
+/>
+```
+
+**Benefits:**
+- ✅ Click outside to close
+- ✅ Escape key support
+- ✅ Danger item styling
+- ✅ Icon support
+- ✅ Disabled items
+- ✅ Type-safe
+
+---
+
+### 25. Reusable Modal Component
+
+**What:** Modal dialog with backdrop, keyboard support, and scroll lock.
+
+**When to use:** Confirmations, forms, detail views.
+
+**File:** `src/components/ui/Modal.tsx`
+
+```typescript
+'use client'
+
+import { ReactNode, useEffect } from 'react'
+import { Button } from './Button'
+
+interface ModalProps {
+  isOpen: boolean
+  onClose: () => void
+  title: string
+  children: ReactNode
+  footer?: ReactNode
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+}
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  footer,
+  size = 'md'
+}: ModalProps) {
+  // Close on Escape key
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden'
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+      document.body.style.overflow = 'unset'
+    }
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  const sizes = {
+    sm: 'max-w-md',
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto"
+      aria-labelledby="modal-title"
+      role="dialog"
+      aria-modal="true"
+    >
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          className={`
+            relative transform overflow-hidden rounded-lg bg-white
+            shadow-xl transition-all w-full ${sizes[size]}
+          `}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="border-b border-gray-200 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <h3
+                className="text-lg font-semibold text-gray-900"
+                id="modal-title"
+              >
+                {title}
+              </h3>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-500 focus:outline-none"
+              >
+                <span className="sr-only">Close</span>
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-6 py-4">
+            {children}
+          </div>
+
+          {/* Footer */}
+          {footer && (
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50">
+              {footer}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Common modal footer with Cancel and Confirm buttons
+interface ModalFooterProps {
+  onCancel: () => void
+  onConfirm: () => void
+  confirmText?: string
+  cancelText?: string
+  confirmVariant?: 'default' | 'danger'
+  isLoading?: boolean
+}
+
+export function ModalFooter({
+  onCancel,
+  onConfirm,
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  confirmVariant = 'default',
+  isLoading = false,
+}: ModalFooterProps) {
+  return (
+    <div className="flex justify-end gap-3">
+      <Button
+        onClick={onCancel}
+        variant="outline"
+        disabled={isLoading}
+      >
+        {cancelText}
+      </Button>
+      <Button
+        onClick={onConfirm}
+        variant={confirmVariant}
+        isLoading={isLoading}
+      >
+        {confirmText}
+      </Button>
+    </div>
+  )
+}
+```
+
+**Usage:**
+
+```typescript
+import { Modal, ModalFooter } from '@/components/ui/Modal'
+
+const [isOpen, setIsOpen] = useState(false)
+
+<Modal
+  isOpen={isOpen}
+  onClose={() => setIsOpen(false)}
+  title="Delete Project"
+  size="md"
+  footer={
+    <ModalFooter
+      onCancel={() => setIsOpen(false)}
+      onConfirm={handleDelete}
+      confirmText="Delete"
+      confirmVariant="danger"
+      isLoading={isDeleting}
+    />
+  }
+>
+  <p>Are you sure you want to delete this project?</p>
+</Modal>
+```
+
+**Benefits:**
+- ✅ Backdrop with click-to-close
+- ✅ Escape key support
+- ✅ Body scroll lock
+- ✅ Multiple sizes
+- ✅ Custom footer support
+- ✅ ModalFooter helper
+- ✅ Accessible with ARIA
+- ✅ Type-safe
+
+---
+
 ## Quick Copy-Paste Checklist
 
 Use this checklist when starting a new project:
@@ -1218,6 +1852,14 @@ Use this checklist when starting a new project:
 
 ## Version History
 
+**v1.1 - Module 1, Lessons 1-3 (2025-11-19)**
+- **NEW in Lesson 3:** 5 Reusable UI Components
+  - Button component (variants, sizes, loading states)
+  - Input component (labels, errors, helper text)
+  - Select component (options array, placeholder)
+  - Dropdown component (menus, click-outside, keyboard)
+  - Modal component (backdrop, escape key, scroll lock)
+
 **v1.0 - Module 1, Lessons 1-2 (2025-11-19)**
 - Next.js 16 setup with Cache Components
 - Import alias configuration
@@ -1229,15 +1871,14 @@ Use this checklist when starting a new project:
 - Protected route helpers
 
 **Coming in future lessons:**
-- Authentication UI components
-- Form handling patterns
-- Error handling
-- Loading states
-- Server Actions
+- Server Actions (authentication, CRUD operations)
+- Form handling patterns with validation
+- Error boundaries and error handling
+- Loading states and skeletons
 - Real-time subscriptions
-- File uploads
+- File uploads with Supabase Storage
 - Email templates
-- Payment integration
+- Payment integration (Stripe)
 - And more...
 
 ---
@@ -1247,9 +1888,9 @@ Use this checklist when starting a new project:
 This section will be updated as new features are introduced in upcoming lessons.
 
 **Planned additions:**
-- Lesson 3: Authentication UI, login/signup forms, password reset
-- Lesson 4: Dashboard layout, navigation, user profile
-- Lesson 5: CRUD operations, form validation, error handling
+- Lesson 4: Project CRUD operations, Server Actions
+- Lesson 5: Task management, real-time updates
+- Lesson 6: File uploads, image handling
 - And more...
 
 ---

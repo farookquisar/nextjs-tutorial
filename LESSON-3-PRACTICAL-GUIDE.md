@@ -42,7 +42,10 @@ In this lesson, we'll implement:
 │   │   │   └── LogoutButton.tsx ← NEW: Logout button
 │   │   └── ui/
 │   │       ├── Button.tsx       ← NEW: Reusable button
-│   │       └── Input.tsx        ← NEW: Reusable input
+│   │       ├── Input.tsx        ← NEW: Reusable input
+│   │       ├── Select.tsx       ← NEW: Reusable select/dropdown list
+│   │       ├── Dropdown.tsx     ← NEW: Reusable dropdown menu
+│   │       └── Modal.tsx        ← NEW: Reusable modal dialog
 │   ├── lib/
 │   │   └── actions/
 │   │       └── auth.ts          ← NEW: Server actions for auth
@@ -190,6 +193,367 @@ INPUT_EOF
 cat src/components/ui/Input.tsx | head -20
 ```
 
+**Create Select component:**
+
+```bash
+cat > src/components/ui/Select.tsx << 'SELECT_EOF'
+import { SelectHTMLAttributes, forwardRef } from 'react'
+
+interface SelectOption {
+  value: string
+  label: string
+  disabled?: boolean
+}
+
+interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string
+  error?: string
+  helperText?: string
+  options: SelectOption[]
+  placeholder?: string
+}
+
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(
+  ({ label, error, helperText, options, placeholder, className = '', ...props }, ref) => {
+    const selectId = props.id || props.name
+
+    return (
+      <div className="w-full">
+        {label && (
+          <label
+            htmlFor={selectId}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            {label}
+          </label>
+        )}
+        <select
+          ref={ref}
+          id={selectId}
+          className={`
+            w-full px-3 py-2 border rounded-md shadow-sm
+            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+            disabled:bg-gray-100 disabled:cursor-not-allowed
+            ${error ? 'border-red-500' : 'border-gray-300'}
+            ${className}
+          `}
+          {...props}
+        >
+          {placeholder && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
+          {options.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={option.disabled}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {error && (
+          <p className="mt-1 text-sm text-red-600">{error}</p>
+        )}
+        {helperText && !error && (
+          <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+        )}
+      </div>
+    )
+  }
+)
+
+Select.displayName = 'Select'
+SELECT_EOF
+
+# Verify file created
+cat src/components/ui/Select.tsx | head -20
+```
+
+**Create Dropdown component:**
+
+```bash
+cat > src/components/ui/Dropdown.tsx << 'DROPDOWN_EOF'
+'use client'
+
+import { useState, useRef, useEffect, ReactNode } from 'react'
+
+interface DropdownItem {
+  label: string
+  onClick: () => void
+  icon?: ReactNode
+  danger?: boolean
+  disabled?: boolean
+}
+
+interface DropdownProps {
+  trigger: ReactNode
+  items: DropdownItem[]
+  align?: 'left' | 'right'
+}
+
+export function Dropdown({ trigger, items, align = 'right' }: DropdownProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen])
+
+  // Close on Escape key
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div className="relative inline-block" ref={dropdownRef}>
+      <div onClick={() => setIsOpen(!isOpen)}>
+        {trigger}
+      </div>
+
+      {isOpen && (
+        <div
+          className={`
+            absolute z-50 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5
+            ${align === 'right' ? 'right-0' : 'left-0'}
+          `}
+        >
+          <div className="py-1" role="menu">
+            {items.map((item, index) => (
+              <button
+                key={index}
+                onClick={() => {
+                  if (!item.disabled) {
+                    item.onClick()
+                    setIsOpen(false)
+                  }
+                }}
+                disabled={item.disabled}
+                className={`
+                  w-full text-left px-4 py-2 text-sm flex items-center gap-2
+                  transition-colors
+                  ${item.danger
+                    ? 'text-red-700 hover:bg-red-50'
+                    : 'text-gray-700 hover:bg-gray-100'
+                  }
+                  ${item.disabled
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'cursor-pointer'
+                  }
+                `}
+                role="menuitem"
+              >
+                {item.icon && <span>{item.icon}</span>}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+DROPDOWN_EOF
+
+# Verify file created
+cat src/components/ui/Dropdown.tsx | head -30
+```
+
+**Create Modal component:**
+
+```bash
+cat > src/components/ui/Modal.tsx << 'MODAL_EOF'
+'use client'
+
+import { ReactNode, useEffect } from 'react'
+import { Button } from './Button'
+
+interface ModalProps {
+  isOpen: boolean
+  onClose: () => void
+  title: string
+  children: ReactNode
+  footer?: ReactNode
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+}
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  footer,
+  size = 'md'
+}: ModalProps) {
+  // Close on Escape key
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden'
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+      document.body.style.overflow = 'unset'
+    }
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  const sizes = {
+    sm: 'max-w-md',
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto"
+      aria-labelledby="modal-title"
+      role="dialog"
+      aria-modal="true"
+    >
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          className={`
+            relative transform overflow-hidden rounded-lg bg-white
+            shadow-xl transition-all w-full ${sizes[size]}
+          `}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="border-b border-gray-200 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <h3
+                className="text-lg font-semibold text-gray-900"
+                id="modal-title"
+              >
+                {title}
+              </h3>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-500 focus:outline-none"
+              >
+                <span className="sr-only">Close</span>
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-6 py-4">
+            {children}
+          </div>
+
+          {/* Footer */}
+          {footer && (
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50">
+              {footer}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Common modal footer with Cancel and Confirm buttons
+interface ModalFooterProps {
+  onCancel: () => void
+  onConfirm: () => void
+  confirmText?: string
+  cancelText?: string
+  confirmVariant?: 'default' | 'danger'
+  isLoading?: boolean
+}
+
+export function ModalFooter({
+  onCancel,
+  onConfirm,
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  confirmVariant = 'default',
+  isLoading = false,
+}: ModalFooterProps) {
+  return (
+    <div className="flex justify-end gap-3">
+      <Button
+        onClick={onCancel}
+        variant="outline"
+        disabled={isLoading}
+      >
+        {cancelText}
+      </Button>
+      <Button
+        onClick={onConfirm}
+        variant={confirmVariant}
+        isLoading={isLoading}
+      >
+        {confirmText}
+      </Button>
+    </div>
+  )
+}
+MODAL_EOF
+
+# Verify file created
+cat src/components/ui/Modal.tsx | head -40
+```
+
 <details>
 <summary>📖 <strong>Why these UI components?</strong></summary>
 
@@ -209,12 +573,39 @@ cat src/components/ui/Input.tsx | head -20
 - **Accessibility**: Proper label associations
 - **Type-safe**: Extends native `InputHTMLAttributes`
 
+**Select Component:**
+- **Options array**: Pass array of `{value, label, disabled?}` objects
+- **Placeholder**: Optional placeholder text
+- **Error handling**: Same as Input component
+- **Accessibility**: Proper label associations, disabled options
+- **Type-safe**: Extends native `SelectHTMLAttributes`
+
+**Dropdown Component:**
+- **Click outside to close**: Auto-closes when clicking outside
+- **Escape key support**: Press Escape to close
+- **Alignment**: Left or right alignment
+- **Icons**: Optional icons for menu items
+- **Danger items**: Red styling for destructive actions
+- **Disabled items**: Visual and functional disabled state
+- **Type-safe**: Custom DropdownItem interface
+
+**Modal Component:**
+- **Backdrop**: Dark overlay with click-to-close
+- **Escape key**: Press Escape to close
+- **Body scroll lock**: Prevents scrolling when modal is open
+- **Sizes**: sm, md, lg, xl for different content amounts
+- **Custom footer**: Pass any ReactNode as footer
+- **ModalFooter helper**: Pre-built Cancel/Confirm footer
+- **Accessible**: ARIA attributes for screen readers
+- **Type-safe**: All props typed
+
 **Benefits:**
 1. **Consistent design** - Same look across all forms
 2. **Less code** - Reuse instead of duplicate
-3. **Accessible** - Built-in ARIA attributes
+3. **Accessible** - Built-in ARIA attributes, keyboard navigation
 4. **Type-safe** - TypeScript catches errors
 5. **Customizable** - Easy to extend with className
+6. **Production-ready** - Handles edge cases (click outside, escape key, scroll lock)
 
 </details>
 
@@ -1164,7 +1555,15 @@ echo "
 - [ ] Button has loading state with spinner
 - [ ] Created `src/components/ui/Input.tsx`
 - [ ] Input has label, error, and helper text support
-- [ ] Both components are type-safe and accessible
+- [ ] Created `src/components/ui/Select.tsx`
+- [ ] Select has options array with placeholder support
+- [ ] Created `src/components/ui/Dropdown.tsx`
+- [ ] Dropdown has click-outside and escape key support
+- [ ] Dropdown supports icons and danger items
+- [ ] Created `src/components/ui/Modal.tsx`
+- [ ] Modal has backdrop, escape key, and scroll lock
+- [ ] Modal has ModalFooter helper component
+- [ ] All components are type-safe and accessible
 
 ### 🎯 Auth Server Actions
 
