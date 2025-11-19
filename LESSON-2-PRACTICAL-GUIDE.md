@@ -2124,30 +2124,39 @@ supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.
 
 ### 🎯 STEP 13 — Create Example RPC Usage File
 
-**⚠️ Important:** This file contains example RPC function calls. You may see TypeScript errors until:
-1. You run the database migrations (STEP 6, 7, 8) in Supabase Dashboard
-2. You regenerate types from your actual database schema
-3. Or you can skip this step and create RPC wrappers later when needed
+**💡 This file contains example RPC function calls as a reference guide.**
+
+All code is commented out so your build won't fail. When you're ready to use these functions:
+1. Run the database migrations (STEP 6, 7, 8) in Supabase Dashboard
+2. Regenerate types: `supabase gen types typescript --project-id YOUR_ID > src/types/database.ts`
+3. Uncomment the functions you need and use them in your app
 
 ```bash
 cat > src/lib/supabase/rpc-examples.ts << 'RPC_EXAMPLES_EOF'
 /**
- * Example RPC function usage
- * These are type-safe database queries using RPC functions
+ * ============================================
+ * EXAMPLE RPC FUNCTION USAGE (COMMENTED OUT)
+ * ============================================
  *
- * ⚠️ NOTE: These examples will show TypeScript errors until you:
- * 1. Create the RPC functions in your Supabase database (see STEP 8)
- * 2. Run the migrations in Supabase Dashboard
- * 3. Regenerate types: supabase gen types typescript --project-id YOUR_ID
+ * This file contains reference examples of type-safe database queries using RPC functions.
+ * All code is commented out to prevent build errors.
  *
- * For now, you can:
- * - Skip this file and create it later
- * - Or add // @ts-expect-error above lines with errors
- * - Or create the database first, then come back to this step
+ * 📖 HOW TO USE THESE EXAMPLES:
+ * 1. Complete STEP 6, 7, 8 (database migrations) in Supabase Dashboard
+ * 2. Regenerate types from your actual database:
+ *    supabase gen types typescript --project-id YOUR_ID > src/types/database.ts
+ * 3. Uncomment the functions you need below
+ * 4. Import and use them in your components
+ *
+ * 💡 WHY COMMENTED OUT?
+ * - Manual database types don't include RPC function signatures
+ * - RPC functions only exist after running migrations
+ * - Prevents TypeScript errors during build
+ * - Serves as copy-paste reference when ready
  */
 
-import { createClient as createServerClient } from '@/lib/supabase/server'
-import { createClient as createBrowserClient } from '@/lib/supabase/client'
+// import { createClient as createServerClient } from '@/lib/supabase/server'
+// import { createClient as createBrowserClient } from '@/lib/supabase/client'
 
 // ============================================
 // SERVER-SIDE EXAMPLES (Server Components)
@@ -2157,170 +2166,170 @@ import { createClient as createBrowserClient } from '@/lib/supabase/client'
  * Get all projects for current user
  * Returns projects with user's role in each project
  */
-export async function getUserProjects() {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('get_user_projects')
-
-  if (error) {
-    console.error('Error fetching projects:', error)
-    return []
-  }
-
-  return data
-}
+// export async function getUserProjects() {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('get_user_projects')
+//
+//   if (error) {
+//     console.error('Error fetching projects:', error)
+//     return []
+//   }
+//
+//   return data
+// }
 
 /**
  * Get single project by ID
  * Includes user's role in the project
  */
-export async function getProjectById(projectId: string) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('get_project_by_id', { project_uuid: projectId })
-
-  if (error) {
-    console.error('Error fetching project:', error)
-    return null
-  }
-
-  return data?.[0] || null
-}
+// export async function getProjectById(projectId: string) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('get_project_by_id', { project_uuid: projectId })
+//
+//   if (error) {
+//     console.error('Error fetching project:', error)
+//     return null
+//   }
+//
+//   return data?.[0] || null
+// }
 
 /**
  * Create new project
  * Automatically adds current user as owner
  */
-export async function createProject(input: {
-  name: string
-  description: string
-  startDate: string
-  endDate: string
-}) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('create_project', {
-      project_name: input.name,
-      project_description: input.description,
-      project_start_date: input.startDate,
-      project_end_date: input.endDate,
-    })
-
-  if (error) {
-    console.error('Error creating project:', error)
-    return null
-  }
-
-  return data // Returns new project UUID
-}
+// export async function createProject(input: {
+//   name: string
+//   description: string
+//   startDate: string
+//   endDate: string
+// }) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('create_project', {
+//       project_name: input.name,
+//       project_description: input.description,
+//       project_start_date: input.startDate,
+//       project_end_date: input.endDate,
+//     })
+//
+//   if (error) {
+//     console.error('Error creating project:', error)
+//     return null
+//   }
+//
+//   return data // Returns new project UUID
+// }
 
 /**
  * Get all tasks for a project
  */
-export async function getProjectTasks(projectId: string) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('get_project_tasks', { project_uuid: projectId })
-
-  if (error) {
-    console.error('Error fetching tasks:', error)
-    return []
-  }
-
-  return data
-}
+// export async function getProjectTasks(projectId: string) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('get_project_tasks', { project_uuid: projectId })
+//
+//   if (error) {
+//     console.error('Error fetching tasks:', error)
+//     return []
+//   }
+//
+//   return data
+// }
 
 /**
  * Create new task in project
  */
-export async function createTask(input: {
-  projectId: string
-  title: string
-  description: string
-  dueDate: string
-  assignedTo: string
-}) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('create_task', {
-      task_project_id: input.projectId,
-      task_title: input.title,
-      task_description: input.description,
-      task_due_date: input.dueDate,
-      task_assigned_to: input.assignedTo,
-    })
-
-  if (error) {
-    console.error('Error creating task:', error)
-    return null
-  }
-
-  return data // Returns new task UUID
-}
+// export async function createTask(input: {
+//   projectId: string
+//   title: string
+//   description: string
+//   dueDate: string
+//   assignedTo: string
+// }) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('create_task', {
+//       task_project_id: input.projectId,
+//       task_title: input.title,
+//       task_description: input.description,
+//       task_due_date: input.dueDate,
+//       task_assigned_to: input.assignedTo,
+//     })
+//
+//   if (error) {
+//     console.error('Error creating task:', error)
+//     return null
+//   }
+//
+//   return data // Returns new task UUID
+// }
 
 /**
  * Get all members of a project
  */
-export async function getProjectMembers(projectId: string) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('get_project_members', { project_uuid: projectId })
-
-  if (error) {
-    console.error('Error fetching members:', error)
-    return []
-  }
-
-  return data
-}
+// export async function getProjectMembers(projectId: string) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('get_project_members', { project_uuid: projectId })
+//
+//   if (error) {
+//     console.error('Error fetching members:', error)
+//     return []
+//   }
+//
+//   return data
+// }
 
 /**
  * Add member to project
  */
-export async function addProjectMember(input: {
-  projectId: string
-  userId: string
-  role: 'owner' | 'admin' | 'member' | 'viewer'
-}) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('add_project_member', {
-      member_project_id: input.projectId,
-      member_user_id: input.userId,
-      member_role: input.role,
-    })
-
-  if (error) {
-    console.error('Error adding member:', error)
-    return null
-  }
-
-  return data // Returns new member UUID
-}
+// export async function addProjectMember(input: {
+//   projectId: string
+//   userId: string
+//   role: 'owner' | 'admin' | 'member' | 'viewer'
+// }) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('add_project_member', {
+//       member_project_id: input.projectId,
+//       member_user_id: input.userId,
+//       member_role: input.role,
+//     })
+//
+//   if (error) {
+//     console.error('Error adding member:', error)
+//     return null
+//   }
+//
+//   return data // Returns new member UUID
+// }
 
 /**
  * Get all payments for a project
  */
-export async function getProjectPayments(projectId: string) {
-  const supabase = await createServerClient()
-
-  const { data, error } = await supabase
-    .rpc('get_project_payments', { project_uuid: projectId })
-
-  if (error) {
-    console.error('Error fetching payments:', error)
-    return []
-  }
-
-  return data
-}
+// export async function getProjectPayments(projectId: string) {
+//   const supabase = await createServerClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('get_project_payments', { project_uuid: projectId })
+//
+//   if (error) {
+//     console.error('Error fetching payments:', error)
+//     return []
+//   }
+//
+//   return data
+// }
 
 // ============================================
 // CLIENT-SIDE EXAMPLES (Client Components)
@@ -2330,82 +2339,63 @@ export async function getProjectPayments(projectId: string) {
  * Client-side project fetch
  * Use in 'use client' components
  */
-export async function getUserProjectsClient() {
-  const supabase = createBrowserClient()
-
-  const { data, error } = await supabase
-    .rpc('get_user_projects')
-
-  if (error) {
-    console.error('Error fetching projects:', error)
-    return []
-  }
-
-  return data
-}
+// export async function getUserProjectsClient() {
+//   const supabase = createBrowserClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('get_user_projects')
+//
+//   if (error) {
+//     console.error('Error fetching projects:', error)
+//     return []
+//   }
+//
+//   return data
+// }
 
 /**
  * Client-side project creation
  * Use in forms, user interactions
  */
-export async function createProjectClient(input: {
-  name: string
-  description: string
-  startDate: string
-  endDate: string
-}) {
-  const supabase = createBrowserClient()
-
-  const { data, error } = await supabase
-    .rpc('create_project', {
-      project_name: input.name,
-      project_description: input.description,
-      project_start_date: input.startDate,
-      project_end_date: input.endDate,
-    })
-
-  if (error) {
-    console.error('Error creating project:', error)
-    return null
-  }
-
-  return data
-}
+// export async function createProjectClient(input: {
+//   name: string
+//   description: string
+//   startDate: string
+//   endDate: string
+// }) {
+//   const supabase = createBrowserClient()
+//
+//   const { data, error } = await supabase
+//     .rpc('create_project', {
+//       project_name: input.name,
+//       project_description: input.description,
+//       project_start_date: input.startDate,
+//       project_end_date: input.endDate,
+//     })
+//
+//   if (error) {
+//     console.error('Error creating project:', error)
+//     return null
+//   }
+//
+//   return data
+// }
 RPC_EXAMPLES_EOF
 
 # Verify file created
 cat src/lib/supabase/rpc-examples.ts | head -30
 ```
 
-**💡 Handling TypeScript Errors:**
+**💡 When to Uncomment and Use These Functions:**
 
-If you see TypeScript errors like `Argument of type '{ project_uuid: string; }' is not assignable to parameter of type 'undefined'`, this is expected! Here are your options:
-
-**Option 1: Skip this file for now (Recommended for beginners)**
-```bash
-# Delete the file and create it later after database setup
-rm src/lib/supabase/rpc-examples.ts
-```
-
-**Option 2: Suppress TypeScript errors temporarily**
-Add `// @ts-expect-error` before problematic lines:
-```typescript
-// @ts-expect-error - Will work after database migration
-const { data, error } = await supabase.rpc('get_project_by_id', { project_uuid: projectId })
-```
-
-**Option 3: Create database first, then regenerate types (Recommended for production)**
-```bash
-# After running all migrations in Supabase Dashboard:
-supabase login
-supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts
-# Now TypeScript errors will disappear!
-```
-
-**Option 4: Use the file as reference only**
-- Keep the file but don't import it anywhere yet
-- Use it as a reference when you need to create RPC wrappers later
-- Build will succeed because unused files don't cause build errors
+1. **After database setup** - Complete STEP 6, 7, 8 (create tables, policies, RPC functions) in Supabase Dashboard
+2. **Regenerate types** from your actual database schema:
+   ```bash
+   supabase login
+   supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts
+   ```
+3. **Uncomment** the functions you need and import them in your components
+4. **Build will succeed** - No TypeScript errors because code is commented out!
 
 <details>
 <summary>📖 <strong>How to use RPC functions</strong></summary>
@@ -2568,6 +2558,54 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 ---
 
+### 🎯 STEP 15 — Run Build to Verify Everything Works
+
+```bash
+# Run production build to verify no TypeScript errors
+echo "🏗️  Building project..."
+npm run build
+
+echo ""
+echo "✅ If build succeeds, all TypeScript types are correct!"
+echo "✅ RPC examples are commented out, so no build errors expected."
+echo "✅ Your app is ready for Lesson 3 (Authentication)!"
+```
+
+**Expected output:**
+```
+🏗️  Building project...
+   ▲ Next.js 16.x.x
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+ ✓ Linting and checking validity of types
+ ✓ Collecting page data
+ ✓ Generating static pages (X/X)
+ ✓ Collecting build traces
+ ✓ Finalizing page optimization
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    XX kB          XX kB
+└ ○ /_not-found                          XX kB          XX kB
++ First Load JS shared by all            XX kB
+  ├ chunks/XXX.js                        XX kB
+  └ other chunks (total)                 XX kB
+
+○  (Static)  prerendered as static content
+
+✅ Build succeeded!
+```
+
+**If build fails:**
+- Check all file paths match exactly (case-sensitive)
+- Verify all import statements use `@/` alias correctly
+- Make sure `.env.local` has all required variables (build won't fail but check anyway)
+- Ensure `rpc-examples.ts` code is fully commented out
+- Review error messages and fix any TypeScript errors
+
+---
+
 ## ✅ 3. CHECKLIST
 
 ### 🎯 Supabase Project Setup
@@ -2672,15 +2710,14 @@ SUPABASE_SERVICE_ROLE_KEY=...
 - [ ] Server client typed with `<Database>`
 - [ ] Both clients use publishable key (not service role)
 
-### 🎯 RPC Examples (Optional)
+### 🎯 RPC Examples
 
-- [ ] Created `rpc-examples.ts` file (or skipped for now)
-- [ ] Understand that TypeScript errors are expected until database is set up
-- [ ] Chose one of the 4 options for handling TypeScript errors
-- [ ] If kept file: Added `// @ts-expect-error` comments OR using as reference only
-- [ ] If deleted file: Plan to create it after database migration
+- [ ] Created `rpc-examples.ts` file with all code commented out
+- [ ] Understand this file is a reference guide for later use
+- [ ] Know when to uncomment: after database migration + type regeneration
+- [ ] Build succeeds with no TypeScript errors (all code is commented)
 
-**Note:** It's OK to have TypeScript errors in this file - they'll disappear after database setup!
+**Note:** All code is commented out, so no build errors! Uncomment functions when database is ready.
 
 ### 🎯 Code Quality
 
@@ -2707,7 +2744,8 @@ SUPABASE_SERVICE_ROLE_KEY=...
 - [ ] Tables visible in Database view
 - [ ] Policies visible in Policies view
 - [ ] Functions visible in Functions view
-- [ ] No build errors: `npm run build`
+- [ ] Ran STEP 15: Build verification (`npm run build`)
+- [ ] Build succeeded with no TypeScript errors
 - [ ] Ready for Lesson 3 (Authentication)
 
 ---

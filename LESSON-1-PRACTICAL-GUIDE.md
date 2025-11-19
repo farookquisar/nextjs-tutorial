@@ -1049,18 +1049,48 @@ tail -10 .gitignore
 ### 🎯 STEP 12 — Build the Project
 
 ```bash
+# Run production build to verify no TypeScript errors
+echo "🏗️  Building project..."
 npm run build
+
+echo ""
+echo "✅ If build succeeds, all TypeScript types are correct!"
+echo "✅ Your Next.js 16 app is properly configured!"
+echo "✅ Ready for Lesson 2 (Supabase Setup)!"
 ```
 
-**Expected Output:**
+**Expected output:**
 ```
-✓ Compiled successfully
-Route (app)
-┌ ○ /
-└ ○ /_not-found
+🏗️  Building project...
+   ▲ Next.js 16.x.x
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+ ✓ Linting and checking validity of types
+ ✓ Collecting page data
+ ✓ Generating static pages (2/2)
+ ✓ Collecting build traces
+ ✓ Finalizing page optimization
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    XX kB          XX kB
+└ ○ /_not-found                          XX kB          XX kB
++ First Load JS shared by all            XX kB
+  ├ chunks/XXX.js                        XX kB
+  └ other chunks (total)                 XX kB
 
 ○  (Static)  prerendered as static content
+
+✅ Build succeeded!
 ```
+
+**If build fails:**
+- Check all file paths match exactly (case-sensitive)
+- Verify all import statements use `@/` alias correctly
+- Make sure `next.config.ts` has valid syntax
+- Review error messages and fix any TypeScript errors
+- Ensure all constants are properly exported from `src/constants/index.ts`
 
 ---
 
