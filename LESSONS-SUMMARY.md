@@ -286,6 +286,276 @@
 
 ---
 
+## Lesson 6: Team Collaboration with Many-to-Many Relationships
+
+**Reference:** `LESSON-6-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- Many-to-many relationships between users and projects
+- Role-based access control (Owner, Admin, Member, Viewer)
+- Permission matrix system for granular access control
+- Member invitation and management
+- Role-based UI rendering
+- Team member listing with role badges
+
+**Database changes:**
+- RLS policies for `prj_project_members` table
+- RPC function: `get_project_members()` - List members with user details
+- RPC function: `check_member_role()` - Get user's role and permissions
+- RPC function: `get_user_projects()` - List projects user belongs to
+- RPC function: `invite_member_by_email()` - Invite members with role validation
+
+**Key files created:**
+- `supabase/migrations/004_member_rls_and_rpc.sql` - Member RLS and RPC functions
+- `src/constants/index.ts` - Member roles and permissions (EXTENDED)
+- `src/lib/actions/members.ts` - Member CRUD Server Actions
+- `src/lib/validations/member.ts` - Zod validation for member operations
+- `src/utils/permissions.ts` - Permission checking utilities
+- `src/components/features/members/MemberCard.tsx` - Member display card
+- `src/components/features/members/MemberList.tsx` - Members list component
+- `src/components/features/members/InviteMemberForm.tsx` - Invite member form
+- `src/app/dashboard/projects/[id]/members/page.tsx` - Members management page
+
+**Key concepts:**
+- **Many-to-Many (M:N) Relationships** - Junction tables for user-project association
+- **Role-Based Access Control (RBAC)** - Four role levels with different permissions
+- **Permission Matrix** - Centralized permission definitions in constants
+- **RPC for Complex Queries** - Join operations across multiple tables
+- **Cascading Operations** - Removing members affects their tasks/data
+- **Conditional UI Rendering** - Show/hide features based on user role
+
+**Member features:**
+- Invite members to projects by email with specific roles
+- View all project members with their roles
+- Update member roles (if authorized)
+- Remove members from projects (if authorized)
+- Check permissions before showing UI elements
+- Track who invited each member
+
+**Technologies:** RPC Functions, Junction Tables, Permission Systems, RBAC
+
+---
+
+## Lesson 7: Real-time Updates with Supabase Subscriptions
+
+**Reference:** `LESSON-7-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- Real-time task updates using Supabase Realtime
+- Real-time member presence tracking
+- Custom event broadcasting between clients
+- Connection state management
+- Optimistic UI updates
+- Typing indicators (broadcast example)
+
+**Key files created:**
+- `src/constants/index.ts` - Realtime events and connection status (EXTENDED)
+- `src/types/realtime.ts` - TypeScript types for realtime features
+- `src/hooks/realtime/useRealtimeSubscription.ts` - Base subscription hook
+- `src/hooks/realtime/useTaskSubscription.ts` - Task-specific subscription
+- `src/hooks/realtime/usePresence.ts` - Presence tracking hook
+- `src/hooks/realtime/useBroadcast.ts` - Custom event broadcasting
+- `src/components/features/realtime/ConnectionStatus.tsx` - Connection indicator
+- `src/components/features/realtime/OnlineUsers.tsx` - Online users display
+- `src/components/features/realtime/TypingIndicator.tsx` - Typing indicator component
+- `src/components/features/tasks/TaskListRealtime.tsx` - Real-time task list
+- `src/app/globals.css` - Animation styles (EXTENDED)
+
+**Key concepts:**
+- **PostgreSQL Changes** - Listen to database INSERT/UPDATE/DELETE events
+- **Broadcast Channels** - Send ephemeral messages between clients
+- **Presence Tracking** - Track who's currently viewing a project
+- **WebSocket Connections** - Persistent connections for real-time updates
+- **Automatic Cleanup** - Unsubscribe when components unmount
+- **RLS for Realtime** - Row Level Security applies to realtime events
+- **Connection State** - Handle connecting/connected/disconnected states
+
+**Realtime features:**
+- See task updates instantly when team members make changes
+- Track which team members are currently online
+- Show typing indicators in collaborative features
+- Handle connection drops gracefully with reconnection
+- Optimistic UI updates before server confirmation
+
+**Technologies:** Supabase Realtime, WebSockets, PostgreSQL WAL, React hooks
+
+---
+
+## Lesson 8: File Uploads with Supabase Storage
+
+**Reference:** `LESSON-8-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- File upload system with Supabase Storage
+- Storage buckets for project and task attachments
+- File validation (size, type, count)
+- Upload progress tracking
+- Image previews and thumbnails
+- Signed URLs for secure downloads
+- File management (view, download, delete)
+
+**Database changes:**
+- Created `prj_project_attachments` table
+- Created `prj_task_attachments` table
+- RLS policies for attachment tables
+- RPC function: `get_project_attachments()` - List attachments with uploader info
+- RPC function: `get_task_attachments()` - List task attachments
+
+**Storage setup:**
+- Storage bucket: `project-attachments` (private, RLS enforced)
+- Storage bucket: `task-attachments` (private, RLS enforced)
+- Storage policies for upload/download/delete operations
+
+**Key files created:**
+- `supabase/migrations/005_attachments.sql` - Attachment tables and RLS
+- `src/constants/index.ts` - Storage and file upload constants (EXTENDED)
+- `src/types/storage.ts` - TypeScript types for storage operations
+- `src/utils/storage/fileValidation.ts` - File validation utilities
+- `src/lib/actions/storage.ts` - Storage Server Actions
+- `src/components/ui/FileUpload.tsx` - Reusable file upload component
+- `src/components/features/attachments/AttachmentList.tsx` - Attachments display
+- `src/components/features/attachments/ProjectAttachmentsClient.tsx` - Client component
+- `src/app/dashboard/projects/[id]/attachments/page.tsx` - Attachments page
+
+**Key concepts:**
+- **Object Storage** - S3-compatible file storage
+- **Storage Policies** - RLS for storage buckets (not just database)
+- **Signed URLs** - Time-limited, secure download links
+- **FormData Uploads** - Upload files from browser to server
+- **File Validation** - Client and server-side validation
+- **Progress Tracking** - Show upload progress percentage
+- **Cascading Deletes** - Delete files when attachments are removed
+
+**File upload features:**
+- Upload images, documents, and spreadsheets
+- Real-time progress tracking with percentage
+- Preview images before and after upload
+- Download files with original filenames
+- Delete attachments (files and database records)
+- Validate file size (max 5MB) and type
+- Limit number of files per upload (max 10)
+
+**Technologies:** Supabase Storage, FormData, Signed URLs, File API
+
+---
+
+## Lesson 9: Search & Filtering with Full-Text Search
+
+**Reference:** `LESSON-9-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- PostgreSQL full-text search across multiple fields
+- Advanced filtering (status, priority, date ranges, multi-select)
+- Search highlighting with marked text
+- Debounced search input for performance
+- Autocomplete search suggestions
+- Pagination (offset-based)
+- Multiple sort options (relevance, date, priority, title)
+- URL state management for filters
+
+**Database changes:**
+- Added `search_vector` tsvector column to `prj_tasks` and `prj_projects`
+- Triggers to automatically update search vectors on INSERT/UPDATE
+- GIN indexes for fast full-text search
+- RPC function: `search_tasks()` - Advanced search with filters and sorting
+- RPC function: `search_task_suggestions()` - Autocomplete suggestions
+- RPC function: `count_tasks()` - Total count for pagination
+
+**Key files created:**
+- `supabase/migrations/006_full_text_search.sql` - Full-text search setup
+- `src/constants/index.ts` - Search and filter constants (EXTENDED)
+- `src/utils/search/debounce.ts` - Debouncing utilities
+- `src/utils/search/highlight.ts` - Search highlighting utilities
+- `src/lib/actions/tasks.ts` - Search Server Actions (EXTENDED)
+- `src/hooks/search/useSearch.ts` - Search hook with debouncing
+- `src/hooks/search/useFilters.ts` - Filter management hook
+- `src/components/features/search/SearchInput.tsx` - Search input with autocomplete
+- `src/components/features/search/MultiSelectFilter.tsx` - Multi-select filter component
+- `src/app/dashboard/tasks/search/page.tsx` - Search page
+
+**Key concepts:**
+- **Full-Text Search** - PostgreSQL tsvector and tsquery
+- **Search Vectors** - Indexed text for fast lookups
+- **Relevance Ranking** - ts_rank to sort by best matches
+- **GIN Indexes** - Generalized Inverted Index for performance
+- **Debouncing** - Delay API calls until user stops typing
+- **URL as State** - Persist search and filters in query params
+- **Pagination** - Offset/limit with total count
+- **Multi-Select Filters** - Combine multiple filter values
+
+**Search features:**
+- Search across task title and description
+- Auto-complete suggestions as user types
+- Filter by status, priority, due date
+- Sort by relevance, date, priority, or title
+- Highlight matching search terms in results
+- Paginate through large result sets
+- Preserve search state in URL (shareable links)
+- Combine search with multiple filters
+
+**Technologies:** PostgreSQL Full-Text Search, tsvector, tsquery, GIN indexes, Debouncing
+
+---
+
+## Lesson 10: Production Deployment to Vercel
+
+**Reference:** `LESSON-10-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- Production deployment to Vercel platform
+- Environment variables management
+- Supabase production project setup
+- Database connection pooling for serverless
+- Custom domain configuration
+- Security headers (CSP, HSTS, X-Frame-Options)
+- Performance monitoring with Vercel Analytics
+- Error tracking and health checks
+- CI/CD with GitHub integration
+
+**Production setup:**
+- Vercel project configuration
+- Production environment variables
+- Supabase Pro tier with connection pooling
+- Custom domain with SSL certificate
+- Security headers in next.config.ts
+- Global error boundary
+- Health check API endpoint
+
+**Key files created:**
+- `.env.production.example` - Production environment template
+- `vercel.json` - Vercel deployment configuration
+- `next.config.ts` - Production optimizations (UPDATED)
+- `src/utils/env.ts` - Environment utilities
+- `src/utils/logger.ts` - Production logging utility
+- `src/app/error.tsx` - Global error boundary
+- `src/app/api/health/route.ts` - Health check endpoint
+- `.github/ISSUE_TEMPLATE/deployment-checklist.md` - Deployment checklist
+
+**Key concepts:**
+- **Serverless Deployment** - Vercel's edge network
+- **Connection Pooling** - PgBouncer for database connections
+- **Environment Management** - Separate dev/preview/production variables
+- **Security Headers** - Protect against XSS, clickjacking, MIME sniffing
+- **Performance Monitoring** - Track real user metrics
+- **CI/CD** - Automatic deployments from GitHub
+- **Health Checks** - Monitor application and database status
+- **Error Boundaries** - Graceful error handling in production
+
+**Production features:**
+- Automatic deployments on git push
+- Preview deployments for pull requests
+- Custom domain with automatic SSL
+- Connection pooling for database (no "too many connections" errors)
+- Security headers (HSTS, CSP, X-Frame-Options)
+- Performance monitoring and analytics
+- Error tracking and logging
+- Health check endpoint for monitoring
+- Production-optimized builds (compression, minification)
+
+**Technologies:** Vercel, GitHub Actions, Vercel Analytics, Production PostgreSQL, PgBouncer
+
+---
+
 ## Learning Progression Summary
 
 **Lesson 1:** Setup → Next.js project foundation + constants.ts
@@ -293,13 +563,11 @@
 **Lesson 3:** Authentication → Login, signup, protected routes, UI components, E2E testing
 **Lesson 4:** CRUD → Full project management with Server Actions, validation, analytics
 **Lesson 5:** Tasks → Task CRUD, Next.js 16 cache, React 19.2 useEffectEvent, SOLID/DRY best practices
-
-**Next Lesson Ideas:**
-- **Lesson 6:** Project Members - Many-to-many relationships with prj_project_members
-- **Lesson 7:** Real-time Updates - Supabase subscriptions for live data
-- **Lesson 8:** File Uploads - Supabase Storage for project attachments
-- **Lesson 9:** Search & Filtering - Full-text search, advanced filters, pagination
-- **Lesson 10:** Deployment - Vercel deployment, environment variables, production setup
+**Lesson 6:** Team Collaboration → Many-to-many relationships, RBAC, permission matrix
+**Lesson 7:** Real-time → Supabase Realtime subscriptions, presence, broadcast events
+**Lesson 8:** File Storage → Supabase Storage, file uploads, signed URLs, image previews
+**Lesson 9:** Search → Full-text search, advanced filtering, pagination, autocomplete
+**Lesson 10:** Deployment → Production deployment to Vercel, monitoring, security
 
 ---
 
@@ -353,8 +621,13 @@
 - Previous lesson versions and guides
 
 **Main Lessons:** Root directory
-- `LESSON-1-PRACTICAL-GUIDE.md`
-- `LESSON-2-PRACTICAL-GUIDE.md`
-- `LESSON-3-PRACTICAL-GUIDE.md`
-- `LESSON-4-PRACTICAL-GUIDE.md`
-- `LESSON-5-PRACTICAL-GUIDE.md`
+- `LESSON-1-PRACTICAL-GUIDE.md` - Next.js 16 setup with TypeScript and constants
+- `LESSON-2-PRACTICAL-GUIDE.md` - Supabase database with RLS and migrations
+- `LESSON-3-PRACTICAL-GUIDE.md` - Authentication with protected routes
+- `LESSON-4-PRACTICAL-GUIDE.md` - Project CRUD operations
+- `LESSON-5-PRACTICAL-GUIDE.md` - Task management with best practices
+- `LESSON-6-PRACTICAL-GUIDE.md` - Team collaboration with M:N relationships
+- `LESSON-7-PRACTICAL-GUIDE.md` - Real-time updates with Supabase subscriptions
+- `LESSON-8-PRACTICAL-GUIDE.md` - File uploads with Supabase Storage
+- `LESSON-9-PRACTICAL-GUIDE.md` - Search & filtering with full-text search
+- `LESSON-10-PRACTICAL-GUIDE.md` - Production deployment to Vercel
