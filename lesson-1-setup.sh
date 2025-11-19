@@ -435,7 +435,7 @@ echo ""
 echo -e "${BLUE}Step 7: Updating layout.tsx...${NC}"
 cat > src/app/layout.tsx << 'LAYOUT_EOF'
 import type { Metadata } from "next";
-import "./globals.css";
+import "@/app/globals.css";
 
 export const metadata: Metadata = {
   title: "Project Management App",
