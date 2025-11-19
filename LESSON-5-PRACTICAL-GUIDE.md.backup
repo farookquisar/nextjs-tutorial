@@ -8,10 +8,10 @@
 
 ### What You'll Build
 
-In this lesson, you'll implement **Task Management** for projects using the **prj_tasks** table created in Lesson 2, while applying **production-grade best practices**:
+In this lesson, you'll implement **Task Management** for projects using the **prj_tasks** table created in Lesson 2, while introducing **production-grade best practices**:
 
-✅ **Constants Extension** - Add task-specific constants to `src/constants/index.ts` (created in Lesson 1)
-✅ **Next.js 16 'use cache'** - Apply cache directive to Server Actions (cacheComponents enabled in Lesson 1)
+✅ **Constants Extension** - Add task constants to `constants.ts` (from Lesson 1)
+✅ **Next.js 16 Cache Components** - Use `use cache` directive for performance
 ✅ **React 19.2 useEffectEvent** - Avoid stale closures in effects
 ✅ **Task CRUD Operations** - Create, read, update, delete tasks
 ✅ **RPC Functions** - Complex task queries and statistics
@@ -35,8 +35,8 @@ In this lesson, you'll implement **Task Management** for projects using the **pr
 
 ### What You'll Implement
 
-✅ **Constants Extension** - Add task-specific constants to `src/constants/index.ts` (created in Lesson 1)
-✅ **Use Cache Directive** - Apply `use cache` to Server Actions (cacheComponents already enabled in Lesson 1)
+✅ **Constants Extension** - Extend `src/lib/constants.ts` (from Lesson 1) with task constants
+✅ **Cache Components** - Next.js 16 `use cache` for task lists
 ✅ **useEffectEvent** - React 19.2 hook for non-reactive effect logic
 ✅ **Task CRUD** - Full task management with validation
 ✅ **RPC Functions** - `get_tasks_by_project()`, `get_task_stats()`
@@ -47,36 +47,38 @@ In this lesson, you'll implement **Task Management** for projects using the **pr
 ```
 📁 Your App Structure (After This Lesson)
 ├── src/
-│   ├── constants/
-│   │   └── index.ts                      ← UPDATE: Add task constants (created in Lesson 1)
 │   ├── lib/
+│   │   ├── constants.ts                  ← UPDATE: Add task constants (created in Lesson 1)
 │   │   ├── actions/
-│   │   │   └── tasks.ts                  ← NEW: Task CRUD Server Actions (with 'use cache')
+│   │   │   └── tasks.ts                  ← NEW: Task CRUD Server Actions
 │   │   ├── validations/
 │   │   │   └── task.ts                   ← NEW: Zod task schemas
 │   │   └── types/
 │   │       └── database.ts               ← UPDATE: Add task types
 │   ├── app/
-│   │   └── dashboard/
-│   │       └── projects/[id]/
-│   │           └── tasks/
-│   │               ├── page.tsx          ← NEW: Tasks list (Server Component with cache)
-│   │               ├── new/
-│   │               │   └── page.tsx      ← NEW: Create task
-│   │               └── [taskId]/
-│   │                   ├── page.tsx      ← NEW: View task (Server Component with cache)
-│   │                   └── edit/
-│   │                       └── page.tsx  ← NEW: Edit task
+│   │   ├── dashboard/
+│   │   │   └── projects/[id]/
+│   │   │       ├── tasks/
+│   │   │       │   ├── page.tsx          ← NEW: Tasks list (uses cache)
+│   │   │       │   ├── new/
+│   │   │       │   │   └── page.tsx      ← NEW: Create task
+│   │   │       │   └── [taskId]/
+│   │   │       │       ├── page.tsx      ← NEW: View task
+│   │   │       │       └── edit/
+│   │   │       │           └── page.tsx  ← NEW: Edit task
+│   │   └── next.config.ts                ← UPDATE: Enable cacheComponents
 │   ├── components/
 │   │   └── features/tasks/
 │   │       ├── TaskList.tsx              ← NEW: Tasks list component
 │   │       ├── TaskCard.tsx              ← NEW: Task card component
 │   │       ├── TaskForm.tsx              ← NEW: Create/Edit form
-│   │       └── TaskStats.tsx             ← NEW: Task statistics
+│   │       ├── TaskStats.tsx             ← NEW: Task statistics
+│   │       └── TaskFilters.tsx           ← NEW: Filter tasks
 │   └── hooks/
 │       └── useTaskTimer.ts               ← NEW: Demo useEffectEvent
-└── supabase/migrations/
-    └── 003_task_rls_and_rpc.sql          ← NEW: RLS + RPC functions
+├── supabase/migrations/
+│   └── 003_task_rls_and_rpc.sql          ← NEW: RLS + RPC functions
+└── next.config.ts                         ← UPDATE: Enable cache components
 ```
 
 ### Why This Approach?
@@ -92,36 +94,40 @@ In this lesson, you'll implement **Task Management** for projects using the **pr
 
 ## 🎯 2. STEPS
 
-### 🎯 STEP 1 — Add Task-Specific Constants to Existing File
+### 🎯 STEP 1 — Extend Constants File (from Lesson 1)
 
-**In Lesson 1, we already created `src/constants/index.ts` with foundational constants like:**
-- `DB_TABLES` (database table names)
-- `TASK_STATUS` (todo, in_progress, review, done, cancelled)
-- `PROJECT_STATUS` (active, inactive, etc.)
-- `ROUTES` (basic routes)
-- `VALIDATION` limits
-- `ERROR_MESSAGES` and `SUCCESS_MESSAGES`
+**In Lesson 1, we created `src/lib/constants.ts` for all static values.**
 
-**In this lesson, we'll ADD these NEW task-specific constants:**
-
-1. **TASK_PRIORITY** - Low, Medium, High, Urgent (NEW!)
-2. **TASK_STATUS_LABELS** - Display labels for UI (NEW!)
-3. **TASK_PRIORITY_LABELS** - Display labels for UI (NEW!)
-4. **TASK_STATUS_COLORS** - Tailwind CSS classes for badges (NEW!)
-5. **TASK_PRIORITY_COLORS** - Tailwind CSS classes for badges (NEW!)
-6. **UI_LABELS** - Button labels, placeholders, form field labels (NEW!)
-7. **Task routes** - ADD to existing ROUTES object
+Now we'll **extend it** with task-specific constants (status, priority, labels, colors).
 
 **Why constants?**
 - ❌ **Bad:** `if (status === 'done')` - What if you typo "dne"?
 - ✅ **Good:** `if (status === TASK_STATUS.DONE)` - TypeScript autocomplete + compile-time safety
 
-**Add these NEW constants to `src/constants/index.ts`:**
+**Update the constants file (add task constants to existing file):**
 
 ```bash
-# Open your constants file and ADD these new sections:
+# Backup existing constants (optional)
+cp src/lib/constants.ts src/lib/constants.ts.backup
 
-# 1. ADD TASK_PRIORITY (after TASK_STATUS)
+# Extend with task constants
+cat > src/lib/constants.ts << 'EOF'
+// ============================================
+// CONSTANTS - ALL STATIC VALUES IN ONE PLACE
+// No magic strings or numbers allowed!
+// ============================================
+
+// ============================================
+// TASK CONSTANTS
+// ============================================
+
+export const TASK_STATUS = {
+  TODO: 'todo',
+  IN_PROGRESS: 'in_progress',
+  DONE: 'done',
+  BLOCKED: 'blocked',
+} as const;
+
 export const TASK_PRIORITY = {
   LOW: 'low',
   MEDIUM: 'medium',
@@ -129,16 +135,14 @@ export const TASK_PRIORITY = {
   URGENT: 'urgent',
 } as const;
 
-# 2. ADD Display Labels for Status (NEW)
+// Labels for display in UI
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   [TASK_STATUS.TODO]: 'To Do',
   [TASK_STATUS.IN_PROGRESS]: 'In Progress',
-  [TASK_STATUS.REVIEW]: 'Review',
   [TASK_STATUS.DONE]: 'Done',
-  [TASK_STATUS.CANCELLED]: 'Cancelled',
+  [TASK_STATUS.BLOCKED]: 'Blocked',
 };
 
-# 3. ADD Display Labels for Priority (NEW)
 export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
   [TASK_PRIORITY.LOW]: 'Low',
   [TASK_PRIORITY.MEDIUM]: 'Medium',
@@ -146,16 +150,15 @@ export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
   [TASK_PRIORITY.URGENT]: 'Urgent',
 };
 
-# 4. ADD CSS Colors for Status Badges (NEW)
+// CSS classes for task status badges
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   [TASK_STATUS.TODO]: 'bg-gray-100 text-gray-800',
   [TASK_STATUS.IN_PROGRESS]: 'bg-blue-100 text-blue-800',
-  [TASK_STATUS.REVIEW]: 'bg-yellow-100 text-yellow-800',
   [TASK_STATUS.DONE]: 'bg-green-100 text-green-800',
-  [TASK_STATUS.CANCELLED]: 'bg-red-100 text-red-800',
+  [TASK_STATUS.BLOCKED]: 'bg-red-100 text-red-800',
 };
 
-# 5. ADD CSS Colors for Priority Badges (NEW)
+// CSS classes for task priority badges
 export const TASK_PRIORITY_COLORS: Record<TaskPriority, string> = {
   [TASK_PRIORITY.LOW]: 'bg-slate-100 text-slate-800',
   [TASK_PRIORITY.MEDIUM]: 'bg-yellow-100 text-yellow-800',
@@ -163,7 +166,129 @@ export const TASK_PRIORITY_COLORS: Record<TaskPriority, string> = {
   [TASK_PRIORITY.URGENT]: 'bg-red-100 text-red-800',
 };
 
-# 6. ADD UI Labels (NEW)
+// ============================================
+// PROJECT CONSTANTS
+// ============================================
+
+export const PROJECT_STATUS = {
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+  COMPLETED: 'completed',
+  ON_HOLD: 'on_hold',
+} as const;
+
+// ============================================
+// ROUTES
+// ============================================
+
+export const ROUTES = {
+  HOME: '/',
+  LOGIN: '/login',
+  SIGNUP: '/signup',
+  DASHBOARD: '/dashboard',
+  PROJECTS: '/dashboard/projects',
+  PROJECT_NEW: '/dashboard/projects/new',
+  PROJECT_VIEW: (id: string) => `/dashboard/projects/${id}`,
+  PROJECT_EDIT: (id: string) => `/dashboard/projects/${id}/edit`,
+  PROJECT_TASKS: (projectId: string) => `/dashboard/projects/${projectId}/tasks`,
+  TASK_NEW: (projectId: string) => `/dashboard/projects/${projectId}/tasks/new`,
+  TASK_VIEW: (projectId: string, taskId: string) => `/dashboard/projects/${projectId}/tasks/${taskId}`,
+  TASK_EDIT: (projectId: string, taskId: string) => `/dashboard/projects/${projectId}/tasks/${taskId}/edit`,
+} as const;
+
+// ============================================
+// DATABASE TABLE NAMES
+// ============================================
+
+export const TABLES = {
+  PROJECTS: 'prj_projects',
+  TASKS: 'prj_tasks',
+  PROJECT_MEMBERS: 'prj_project_members',
+  PROJECT_PAYMENTS: 'prj_project_payments',
+  PROJECT_TERMS: 'prj_project_terms',
+} as const;
+
+// ============================================
+// CACHE CONFIGURATION (Next.js 16)
+// ============================================
+
+export const CACHE_TAGS = {
+  PROJECTS: 'projects',
+  TASKS: 'tasks',
+  PROJECT_STATS: 'project-stats',
+  TASK_STATS: 'task-stats',
+} as const;
+
+// Cache durations in seconds
+export const CACHE_DURATION = {
+  SHORT: 60,        // 1 minute
+  MEDIUM: 300,      // 5 minutes
+  LONG: 3600,       // 1 hour
+  DAY: 86400,       // 24 hours
+} as const;
+
+// ============================================
+// ERROR MESSAGES
+// ============================================
+
+export const ERROR_MESSAGES = {
+  AUTH: {
+    UNAUTHORIZED: 'You must be logged in to perform this action',
+    INVALID_CREDENTIALS: 'Invalid email or password',
+    EMAIL_ALREADY_EXISTS: 'An account with this email already exists',
+    WEAK_PASSWORD: 'Password must be at least 8 characters',
+  },
+  TASK: {
+    NOT_FOUND: 'Task not found',
+    CREATE_FAILED: 'Failed to create task',
+    UPDATE_FAILED: 'Failed to update task',
+    DELETE_FAILED: 'Failed to delete task',
+    INVALID_STATUS: 'Invalid task status',
+    INVALID_PRIORITY: 'Invalid task priority',
+    DUE_DATE_PAST: 'Due date cannot be in the past',
+  },
+  PROJECT: {
+    NOT_FOUND: 'Project not found',
+    CREATE_FAILED: 'Failed to create project',
+    UPDATE_FAILED: 'Failed to update project',
+    DELETE_FAILED: 'Failed to delete project',
+    END_BEFORE_START: 'End date must be after start date',
+  },
+  GENERIC: {
+    SOMETHING_WENT_WRONG: 'Something went wrong. Please try again.',
+    NETWORK_ERROR: 'Network error. Please check your connection.',
+    VALIDATION_FAILED: 'Validation failed. Please check your inputs.',
+  },
+} as const;
+
+// ============================================
+// SUCCESS MESSAGES
+// ============================================
+
+export const SUCCESS_MESSAGES = {
+  TASK: {
+    CREATED: 'Task created successfully',
+    UPDATED: 'Task updated successfully',
+    DELETED: 'Task deleted successfully',
+    STATUS_CHANGED: 'Task status updated',
+  },
+  PROJECT: {
+    CREATED: 'Project created successfully',
+    UPDATED: 'Project updated successfully',
+    DELETED: 'Project deleted successfully',
+    STATUS_TOGGLED: 'Project status toggled',
+  },
+  AUTH: {
+    SIGNED_IN: 'Signed in successfully',
+    SIGNED_UP: 'Account created successfully',
+    SIGNED_OUT: 'Signed out successfully',
+  },
+} as const;
+
+// ============================================
+// UI LABELS
+// ============================================
+
 export const UI_LABELS = {
   BUTTONS: {
     SAVE: 'Save',
@@ -194,22 +319,58 @@ export const UI_LABELS = {
   },
 } as const;
 
-# 7. ADD Task Routes to existing ROUTES (UPDATE ROUTES object)
-# Add these task routes to your existing ROUTES constant:
-  PROJECT_TASKS: (projectId: string) => `/dashboard/projects/${projectId}/tasks`,
-  TASK_NEW: (projectId: string) => `/dashboard/projects/${projectId}/tasks/new`,
-  TASK_VIEW: (projectId: string, taskId: string) => `/dashboard/projects/${projectId}/tasks/${taskId}`,
-  TASK_EDIT: (projectId: string, taskId: string) => `/dashboard/projects/${projectId}/tasks/${taskId}/edit`,
+// ============================================
+// PAGINATION
+// ============================================
 
-# 8. UPDATE Type Exports (add TaskPriority)
+export const PAGINATION = {
+  DEFAULT_PAGE_SIZE: 10,
+  PAGE_SIZE_OPTIONS: [10, 25, 50, 100],
+  MAX_PAGE_SIZE: 100,
+} as const;
+
+// ============================================
+// VALIDATION LIMITS
+// ============================================
+
+export const VALIDATION = {
+  TASK: {
+    TITLE_MIN_LENGTH: 1,
+    TITLE_MAX_LENGTH: 200,
+    DESCRIPTION_MAX_LENGTH: 2000,
+  },
+  PROJECT: {
+    NAME_MIN_LENGTH: 1,
+    NAME_MAX_LENGTH: 100,
+    DESCRIPTION_MAX_LENGTH: 1000,
+  },
+  PASSWORD: {
+    MIN_LENGTH: 8,
+    MAX_LENGTH: 128,
+  },
+} as const;
+
+// ============================================
+// TYPE EXPORTS (for TypeScript inference)
+// ============================================
+
+export type TaskStatus = typeof TASK_STATUS[keyof typeof TASK_STATUS];
 export type TaskPriority = typeof TASK_PRIORITY[keyof typeof TASK_PRIORITY];
+export type ProjectStatus = typeof PROJECT_STATUS[keyof typeof PROJECT_STATUS];
+EOF
+
+# Verify
+cat src/lib/constants.ts
 ```
 
-**Verify the constants compile:**
+**Verify the file was created:**
 
 ```bash
-# Check TypeScript compiles without errors
-npx tsc --noEmit src/constants/index.ts
+# File should exist and contain all constants
+ls -lh src/lib/constants.ts
+
+# Check it compiles
+npx tsc --noEmit src/lib/constants.ts
 ```
 
 <details>
@@ -260,7 +421,103 @@ export const TASK_STATUS = {
 
 ---
 
-### 🎯 STEP 2 — Add RLS Policies and RPC Functions for Tasks
+### 🎯 STEP 2 — Enable Next.js 16 Cache Components
+
+Next.js 16 introduces **Cache Components** with the `use cache` directive for lightning-fast performance.
+
+**Update next.config.ts to enable cache components:**
+
+```bash
+cat > next.config.ts << 'EOF'
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
+  // ============================================
+  // NEXT.JS 16 CACHE COMPONENTS
+  // ============================================
+  experimental: {
+    // Enable cache components (PPR + use cache)
+    cacheComponents: true,
+  },
+
+  // Existing config...
+};
+
+export default nextConfig;
+EOF
+
+# Verify
+cat next.config.ts
+```
+
+**Verify:**
+
+```bash
+# Check the config file
+cat next.config.ts | grep -A 2 "cacheComponents"
+```
+
+<details>
+<summary>📖 <strong>Understanding Next.js 16 Cache Components</strong></summary>
+
+### What Are Cache Components?
+
+Cache Components in Next.js 16 allow you to cache:
+- Entire Server Components
+- Server Action results
+- Async function results
+
+Using the `use cache` directive at the top of functions or components.
+
+### How It Works
+
+```typescript
+// ✅ Cache this Server Component
+'use cache';
+
+export default async function TaskList({ projectId }: Props) {
+  const tasks = await getTasks(projectId);
+  return <div>{/* ... */}</div>;
+}
+```
+
+```typescript
+// ✅ Cache this async function
+'use cache';
+
+export async function getTasks(projectId: string) {
+  // This result is cached
+  const { data } = await supabase.from('prj_tasks').select('*');
+  return data;
+}
+```
+
+### Benefits
+
+- **Faster Page Loads** - Cached data served instantly
+- **Reduced Database Queries** - Cache hits don't query database
+- **Automatic Revalidation** - Use `cacheTag` to invalidate on mutations
+- **Better UX** - Instant navigation with cached data
+
+### PPR (Partial Prerendering)
+
+Cache Components enable PPR, which combines:
+- **Static content** - Cached and served fast
+- **Dynamic content** - Streamed with Suspense
+
+```tsx
+<Suspense fallback={<TaskSkeleton />}>
+  <CachedTaskList projectId={id} />
+</Suspense>
+```
+
+Static shell loads instantly, dynamic content streams in.
+
+</details>
+
+---
+
+### 🎯 STEP 3 — Add RLS Policies and RPC Functions for Tasks
 
 The `prj_tasks` table was created in Lesson 2, but we need Row Level Security and RPC functions.
 
@@ -506,7 +763,7 @@ Perfect for dashboards and analytics!
 
 ---
 
-### 🎯 STEP 3 — Create Task Types and Validation Schemas
+### 🎯 STEP 4 — Create Task Types and Validation Schemas
 
 **Update database types:**
 
@@ -760,7 +1017,7 @@ Change the limit once in constants, validation message updates automatically!
 
 ---
 
-### 🎯 STEP 4 — Create Task Server Actions with Cache
+### 🎯 STEP 5 — Create Task Server Actions with Cache
 
 Server Actions with Next.js 16 `use cache` directive for performance.
 
@@ -1127,7 +1384,7 @@ export async function createTask(input) {
 
 ---
 
-### 🎯 STEP 5 — Create Task Components
+### 🎯 STEP 6 — Create Task Components
 
 Create reusable task components following SOLID principles (Single Responsibility).
 
@@ -1515,7 +1772,7 @@ Each component should have **one reason to change**.
 
 ---
 
-### 🎯 STEP 6 — Create Task Pages with Cache
+### 🎯 STEP 7 — Create Task Pages with Cache
 
 Create task pages using Next.js 16 Server Components with `use cache`.
 
@@ -1778,7 +2035,7 @@ npx tsc --noEmit 'src/app/dashboard/projects/[id]/tasks/**/*.tsx'
 
 ---
 
-### 🎯 STEP 7 — (OPTIONAL) Demo React 19.2 useEffectEvent
+### 🎯 STEP 8 — (OPTIONAL) Demo React 19.2 useEffectEvent
 
 Create a demo hook using React 19.2's `useEffectEvent` to avoid stale closures.
 
@@ -1907,15 +2164,17 @@ function GoodTimer({ taskCount }) {
 
 ### Verification Checklist
 
-**🎯 Step 1: Add Task Constants**
-- [ ] Task-specific constants added to `src/constants/index.ts`
-- [ ] TASK_PRIORITY, labels, colors added (NEW in Lesson 5)
-- [ ] Task routes added to existing ROUTES object
-- [ ] UI_LABELS added for buttons, placeholders, form fields
+**🎯 Step 1: Constants File**
+- [ ] `src/lib/constants.ts` created with all static values
+- [ ] No magic strings in constants file (all typed as const)
 - [ ] TypeScript compiles without errors
-- [ ] No magic strings (all values from constants)
+- [ ] Task status, priority, routes, error messages defined
 
-**🎯 Step 2: Database**
+**🎯 Step 2: Cache Components**
+- [ ] `next.config.ts` updated with `experimental.cacheComponents: true`
+- [ ] Config file has no syntax errors
+
+**🎯 Step 3: Database**
 - [ ] Migration file `003_task_rls_and_rpc.sql` created
 - [ ] RLS enabled on `prj_tasks` table
 - [ ] 4 RLS policies created (SELECT, INSERT, UPDATE, DELETE)
@@ -1923,20 +2182,20 @@ function GoodTimer({ taskCount }) {
 - [ ] RPC function `get_task_stats()` created
 - [ ] Indexes created for performance
 
-**🎯 Step 3: Types & Validation**
+**🎯 Step 4: Types & Validation**
 - [ ] `src/lib/types/database.ts` updated with Task types
 - [ ] `src/lib/validations/task.ts` created with Zod schemas
 - [ ] TypeScript compiles without errors
 - [ ] Validation uses constants (no magic numbers)
 
-**🎯 Step 4: Server Actions**
+**🎯 Step 5: Server Actions**
 - [ ] `src/lib/actions/tasks.ts` created
 - [ ] `use cache` directive on read functions
 - [ ] `revalidateTag()` called after mutations
 - [ ] All error messages use constants
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 5: Components**
+**🎯 Step 6: Components**
 - [ ] `TaskCard.tsx` created (displays one task)
 - [ ] `TaskList.tsx` created (displays list)
 - [ ] `TaskStats.tsx` created (displays statistics)
@@ -1944,7 +2203,7 @@ function GoodTimer({ taskCount }) {
 - [ ] All components use constants for labels, routes, colors
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 6: Pages**
+**🎯 Step 7: Pages**
 - [ ] Tasks list page created at `[id]/tasks/page.tsx`
 - [ ] New task page created at `[id]/tasks/new/page.tsx`
 - [ ] View task page created at `[id]/tasks/[taskId]/page.tsx`
@@ -1952,7 +2211,7 @@ function GoodTimer({ taskCount }) {
 - [ ] All pages use Server Components
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 7: React 19.2 Demo (Optional)**
+**🎯 Step 8: React 19.2 Demo (Optional)**
 - [ ] `src/hooks/useTaskTimer.ts` created
 - [ ] Uses `useEffectEvent` hook
 - [ ] TypeScript compiles without errors
@@ -2067,11 +2326,10 @@ grep -r "use cache" src/lib/actions/
 
 ```
 src/
-├── constants/
-│   └── index.ts              ← ALL static values (created in Lesson 1, extended in Lesson 5)
 ├── lib/
+│   ├── constants.ts          ← ALL static values
 │   ├── actions/
-│   │   └── tasks.ts          ← Server Actions (with 'use cache')
+│   │   └── tasks.ts          ← Server Actions (with cache)
 │   ├── validations/
 │   │   └── task.ts           ← Zod schemas (use constants)
 │   └── types/
