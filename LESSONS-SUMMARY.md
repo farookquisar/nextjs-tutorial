@@ -224,44 +224,51 @@
 
 **What was built:**
 - Task CRUD operations with `prj_tasks` table
-- Extended constants file (from Lesson 1) with task-specific values
-- Next.js 16 cache components with `use cache` directive
+- Extended `src/constants/index.ts` (from Lesson 1) with NEW task-specific values
+- Applied Next.js 16 `use cache` directive to Server Actions (cacheComponents already enabled in Lesson 1)
 - React 19.2 `useEffectEvent` hook implementation
 - RPC functions for task queries and statistics
-- Task management UI with filters
-- SOLID principles and DRY code throughout
+- Task management UI with SOLID principles
 
 **Database changes:**
-- Added RLS policies for `prj_tasks` table
+- Added RLS policies for `prj_tasks` table (SELECT, INSERT, UPDATE, DELETE)
 - Created `get_tasks_by_project()` RPC function with filters
 - Created `get_task_stats()` RPC function for analytics
 - Added indexes for performance (status, priority, due_date)
 
 **Key files created:**
-- `src/lib/constants.ts` - ALL static values (no magic strings/numbers)
-- `src/lib/actions/tasks.ts` - Task CRUD Server Actions with cache
+- `src/lib/actions/tasks.ts` - Task CRUD Server Actions (with 'use cache')
 - `src/lib/validations/task.ts` - Zod schemas using constants
 - `src/lib/types/database.ts` - Task types and interfaces
 - `src/components/features/tasks/TaskCard.tsx` - Display one task
 - `src/components/features/tasks/TaskList.tsx` - Display task list
 - `src/components/features/tasks/TaskForm.tsx` - Create/edit task form
 - `src/components/features/tasks/TaskStats.tsx` - Task statistics dashboard
-- `src/app/dashboard/projects/[id]/tasks/page.tsx` - Tasks list (cached)
+- `src/app/dashboard/projects/[id]/tasks/page.tsx` - Tasks list (Server Component with cache)
 - `src/app/dashboard/projects/[id]/tasks/new/page.tsx` - Create task
-- `src/app/dashboard/projects/[id]/tasks/[taskId]/page.tsx` - View task (cached)
+- `src/app/dashboard/projects/[id]/tasks/[taskId]/page.tsx` - View task (Server Component with cache)
 - `src/app/dashboard/projects/[id]/tasks/[taskId]/edit/page.tsx` - Edit task
-- `src/hooks/useTaskTimer.ts` - Demo of useEffectEvent
+- `src/hooks/useTaskTimer.ts` - Demo of useEffectEvent (optional)
 - `supabase/migrations/003_task_rls_and_rpc.sql` - RLS + RPC functions
-- `next.config.ts` - Updated with `cacheComponents: true`
+
+**Constants added to existing file (from Lesson 1):**
+- `TASK_PRIORITY` - Low, Medium, High, Urgent (NEW!)
+- `TASK_STATUS_LABELS` - Display labels for UI (NEW!)
+- `TASK_PRIORITY_LABELS` - Display labels for UI (NEW!)
+- `TASK_STATUS_COLORS` - Tailwind CSS classes for badges (NEW!)
+- `TASK_PRIORITY_COLORS` - Tailwind CSS classes for badges (NEW!)
+- `UI_LABELS` - Button labels, placeholders, form field labels (NEW!)
+- Task routes - Added to existing ROUTES object (NEW!)
+- `TaskPriority` type export (NEW!)
 
 **Key concepts:**
-- **Constants Management** - Single source of truth for all static values
-- **Next.js 16 Cache Components** - `use cache` directive for performance
-- **Partial Prerendering (PPR)** - Mix static and dynamic content
+- **Extending Constants** - Add new values to existing constants file (from Lesson 1)
+- **Next.js 16 'use cache'** - Applied to Server Actions for read operations
+- **Partial Prerendering (PPR)** - Enabled by cacheComponents (from Lesson 1)
 - **React 19.2 useEffectEvent** - Avoid stale closures in effects
-- **SOLID Principles** - Single Responsibility Principle (SRP)
-- **DRY Principle** - Don't Repeat Yourself
-- **No Magic Strings** - All values from constants.ts
+- **SOLID Principles** - Single Responsibility per component
+- **DRY Principle** - Don't Repeat Yourself, extend constants
+- **No Magic Strings** - All values from constants file
 - **Type Safety** - TypeScript + constants = autocomplete everywhere
 - **Cache Invalidation** - `revalidateTag()` after mutations
 - **RPC Functions** - Complex task queries on database server
@@ -274,16 +281,6 @@
 - Overdue detection (tasks past due date)
 - Sort by priority and due date
 - Full CRUD with RLS protection
-
-**Production best practices introduced:**
-- ✅ All static values in `constants.ts` (routes, labels, colors, messages)
-- ✅ Type-safe constants with `as const` and exported types
-- ✅ Next.js 16 cache for read operations
-- ✅ Cache invalidation with tags
-- ✅ SOLID principles (SRP, DRY)
-- ✅ No magic strings or numbers anywhere
-- ✅ Validation limits as constants
-- ✅ Single Responsibility per component
 
 **Technologies:** Next.js 16 Cache, React 19.2 useEffectEvent, Zod, RPC Functions, SOLID, DRY
 
