@@ -4,29 +4,72 @@
 
 ---
 
-## Lesson 1: Next.js 16 Setup with TypeScript
+## Lesson 1: Next.js 16 Setup with TypeScript & Constants
+
+**Reference:** `LESSON-1-PRACTICAL-GUIDE.md`
 
 **What was built:**
-- Next.js 16 project with React 19.2
-- TypeScript configuration
-- Tailwind CSS styling
+- Next.js 16.0.3 + React 19.2.0 project setup
+- TypeScript configuration with strict mode
+- Tailwind CSS 4 styling
 - Import alias (@/) configuration
-- Basic project structure
+- SOLID-based folder structure
+- Constants file following DRY principle
+- TypeScript types file for type safety
+- Next.js 16 Cache Components enabled
+- Supabase packages installed
+- Environment variables template
+
+**Folder structure created:**
+- `src/lib/` - External integrations and utilities
+- `src/components/ui/` - Generic UI components
+- `src/components/features/` - Feature-specific components (auth, projects, tasks, payments)
+- `src/constants/` - All app constants (DRY principle)
+- `src/types/` - TypeScript type definitions
+- `src/hooks/` - Custom React hooks
+- `src/utils/` - Utility functions
+- `src/styles/` - Additional styles
 
 **Key files created:**
 - `tsconfig.json` - TypeScript config with path aliases
-- `next.config.ts` - Next.js configuration
-- `tailwind.config.ts` - Tailwind CSS setup
-- `src/app/page.tsx` - Home page
-- `src/app/layout.tsx` - Root layout
+- `next.config.ts` - Next.js 16 config with cacheComponents enabled
+- `tailwind.config.ts` - Tailwind CSS 4 setup
+- `src/constants/index.ts` - ALL app constants (table names, routes, statuses, messages)
+- `src/types/index.ts` - TypeScript types (Project, Task, Payment, etc.)
+- `src/app/page.tsx` - Home page using constants
+- `src/app/layout.tsx` - Root layout with @/ import alias
+- `.env.local.example` - Environment variables template
+- `.gitignore` - Updated to ignore .env files
 
-**Technologies:** Next.js 16, React 19.2, TypeScript, Tailwind CSS
+**Key concepts:**
+- **DRY Principle** - Don't Repeat Yourself, all constants centralized
+- **SOLID Principles** - Folder structure follows Single Responsibility
+- **Import Aliases** - Use @/ instead of ../../../
+- **Next.js 16 Cache Components** - Enabled for performance
+- **Type Safety** - TypeScript types exported from constants
+- **`as const`** - Readonly constants with literal types
+- **No Magic Strings** - All strings/numbers in constants file
 
-**Script:** `reference/LESSON-1-SCRIPT-USAGE.md` contains automated setup script
+**Constants included:**
+- Database table names (DB_TABLES)
+- Cache tags and lifetimes (CACHE_TAGS, CACHE_LIFETIMES)
+- Routes (ROUTES)
+- Task statuses (TASK_STATUS)
+- Project statuses (PROJECT_STATUS)
+- Member roles (MEMBER_ROLES)
+- Payment statuses (PAYMENT_STATUS)
+- Validation rules (VALIDATION)
+- UI constants (UI)
+- Error messages (ERROR_MESSAGES)
+- Success messages (SUCCESS_MESSAGES)
+
+**Technologies:** Next.js 16, React 19.2, TypeScript, Tailwind CSS 4, Supabase (@supabase/supabase-js, @supabase/ssr)
 
 ---
 
 ## Lesson 2: Supabase Setup & Database Configuration
+
+**Reference:** `LESSON-2-PRACTICAL-GUIDE.md`
 
 **What was built:**
 - Supabase project connection
@@ -63,6 +106,8 @@
 ---
 
 ## Lesson 3: Authentication with Supabase Auth
+
+**Reference:** `LESSON-3-PRACTICAL-GUIDE.md`
 
 **What was built:**
 - Email/password authentication
@@ -110,6 +155,8 @@
 ---
 
 ## Lesson 4: Project CRUD Operations with Server Actions
+
+**Reference:** `LESSON-4-PRACTICAL-GUIDE.md`
 
 **What was built:**
 - Full CRUD operations for projects
@@ -172,6 +219,8 @@
 ---
 
 ## Lesson 5: Task Management with Best Practices
+
+**Reference:** `LESSON-5-PRACTICAL-GUIDE.md`
 
 **What was built:**
 - Task CRUD operations with `prj_tasks` table
