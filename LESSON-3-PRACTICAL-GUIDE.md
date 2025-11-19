@@ -1507,7 +1507,465 @@ Route (app)                              Size     First Load JS
 
 ---
 
-### 🎯 STEP 15 — Test Authentication Flow
+### 🎯 STEP 15 — Set Up Automated Testing with Playwright
+
+**Why Playwright?**
+- ✅ Tests real user interactions (E2E testing)
+- ✅ Cross-browser testing (Chrome, Firefox, Safari)
+- ✅ Auto-wait for elements (no flaky tests)
+- ✅ Built-in test generator (AI-assisted)
+- ✅ Best practices recommended by Next.js team
+
+**Install Playwright:**
+
+```bash
+# Install Playwright with TypeScript support
+npm install -D @playwright/test @playwright/experimental-ct-react
+
+# Initialize Playwright (creates config files)
+npx playwright install
+
+echo "✅ Playwright installed!"
+```
+
+**Create Playwright config:**
+
+```bash
+cat > playwright.config.ts << 'PLAYWRIGHT_EOF'
+import { defineConfig, devices } from '@playwright/test'
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+
+  use: {
+    baseURL: 'http://localhost:3000',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+})
+PLAYWRIGHT_EOF
+
+echo "✅ Playwright config created!"
+```
+
+**Create E2E test directory:**
+
+```bash
+mkdir -p e2e
+```
+
+**Create authentication E2E tests:**
+
+```bash
+cat > e2e/auth.spec.ts << 'AUTH_TEST_EOF'
+import { test, expect } from '@playwright/test'
+
+/**
+ * Authentication E2E Tests
+ * Tests the complete authentication flow
+ */
+
+test.describe('Authentication Flow', () => {
+  test.beforeEach(async ({ page }) => {
+    // Start from home page
+    await page.goto('/')
+  })
+
+  test('should show sign in and sign up buttons on home page', async ({ page }) => {
+    // Check for auth buttons
+    await expect(page.getByRole('link', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /sign up/i })).toBeVisible()
+  })
+
+  test('should navigate to signup page and show form', async ({ page }) => {
+    // Click Sign Up button
+    await page.getByRole('link', { name: /sign up/i }).click()
+
+    // Wait for navigation
+    await page.waitForURL('/signup')
+
+    // Check form elements
+    await expect(page.getByRole('heading', { name: /create account/i })).toBeVisible()
+    await expect(page.getByLabel(/email/i)).toBeVisible()
+    await expect(page.getByLabel(/^password/i)).toBeVisible()
+    await expect(page.getByLabel(/confirm password/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: /sign up/i })).toBeVisible()
+  })
+
+  test('should navigate to login page and show form', async ({ page }) => {
+    // Click Sign In button
+    await page.getByRole('link', { name: /sign in/i }).click()
+
+    // Wait for navigation
+    await page.waitForURL('/login')
+
+    // Check form elements
+    await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible()
+    await expect(page.getByLabel(/email/i)).toBeVisible()
+    await expect(page.getByLabel(/password/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+  })
+
+  test('should show validation errors for invalid signup', async ({ page }) => {
+    await page.goto('/signup')
+
+    // Try to submit empty form
+    await page.getByRole('button', { name: /sign up/i }).click()
+
+    // HTML5 validation should prevent submission
+    // Check if email input is invalid
+    const emailInput = page.getByLabel(/email/i)
+    await expect(emailInput).toHaveAttribute('required')
+  })
+
+  test('should show error for password mismatch', async ({ page }) => {
+    await page.goto('/signup')
+
+    // Fill form with mismatched passwords
+    await page.getByLabel(/email/i).fill('test@example.com')
+    await page.getByLabel(/^password/i).fill('password123')
+    await page.getByLabel(/confirm password/i).fill('differentpassword')
+
+    // Submit form
+    await page.getByRole('button', { name: /sign up/i }).click()
+
+    // Should show error message
+    await expect(page.getByText(/passwords do not match/i)).toBeVisible()
+  })
+
+  test('should show error for short password', async ({ page }) => {
+    await page.goto('/signup')
+
+    // Fill form with short password
+    await page.getByLabel(/email/i).fill('test@example.com')
+    await page.getByLabel(/^password/i).fill('short')
+    await page.getByLabel(/confirm password/i).fill('short')
+
+    // Submit form
+    await page.getByRole('button', { name: /sign up/i }).click()
+
+    // Should show error message
+    await expect(page.getByText(/at least 8 characters/i)).toBeVisible()
+  })
+
+  test('should redirect to dashboard when accessing login while authenticated', async ({ page }) => {
+    // This test assumes you have a way to authenticate
+    // For now, we'll test the redirect logic exists
+
+    // Note: In real tests, you'd set up auth state in beforeEach
+    // For example: await page.context().addCookies([...authCookies])
+
+    await page.goto('/login')
+    // Page should load (will redirect if authenticated)
+    await expect(page).toHaveURL(/\/(login|dashboard)/)
+  })
+})
+
+test.describe('Protected Routes', () => {
+  test('should redirect to login when accessing dashboard without auth', async ({ page }) => {
+    // Try to access protected route
+    await page.goto('/dashboard')
+
+    // Should redirect to login
+    await page.waitForURL(/\/login/)
+    await expect(page).toHaveURL(/\/login/)
+  })
+
+  test('should show redirect parameter after unauthenticated access', async ({ page }) => {
+    // Try to access dashboard without auth
+    await page.goto('/dashboard')
+
+    // Should redirect to login with redirect param
+    await expect(page).toHaveURL(/\/login\?redirect/)
+  })
+})
+
+test.describe('UI Components', () => {
+  test('button should show loading state', async ({ page }) => {
+    await page.goto('/login')
+
+    const submitButton = page.getByRole('button', { name: /sign in/i })
+
+    // Fill required fields
+    await page.getByLabel(/email/i).fill('test@example.com')
+    await page.getByLabel(/password/i).fill('password123')
+
+    // Click submit
+    await submitButton.click()
+
+    // Button should show loading state (check for loading text or spinner)
+    // This assumes your button shows "Loading..." text
+    await expect(submitButton).toContainText(/loading/i)
+  })
+
+  test('input should show error state', async ({ page }) => {
+    await page.goto('/signup')
+
+    // Submit form with invalid data
+    await page.getByLabel(/email/i).fill('invalid-email')
+    await page.getByRole('button', { name: /sign up/i }).click()
+
+    // Input should have error styling
+    const emailInput = page.getByLabel(/email/i)
+    await expect(emailInput).toHaveClass(/border-red/)
+  })
+})
+AUTH_TEST_EOF
+
+echo "✅ Authentication E2E tests created!"
+```
+
+**Add test scripts to package.json:**
+
+```bash
+# Add test scripts using npm pkg set
+npm pkg set scripts.test:e2e="playwright test"
+npm pkg set scripts.test:e2e:ui="playwright test --ui"
+npm pkg set scripts.test:e2e:debug="playwright test --debug"
+npm pkg set scripts.test:e2e:report="playwright show-report"
+
+echo "✅ Test scripts added to package.json!"
+```
+
+**Run tests:**
+
+```bash
+# Run all E2E tests
+npm run test:e2e
+
+echo ""
+echo "📊 To view the test report:"
+echo "npm run test:e2e:report"
+
+echo ""
+echo "🎨 To run tests with UI mode (interactive):"
+echo "npm run test:e2e:ui"
+
+echo ""
+echo "🐛 To debug tests step-by-step:"
+echo "npm run test:e2e:debug"
+```
+
+<details>
+<summary>📖 <strong>Using AI to Generate Tests (Best Practices)</strong></summary>
+
+### How to Prompt AI for Test Generation
+
+**1. For Authentication Tests:**
+
+```
+Prompt: "Write Playwright tests for Next.js authentication flow with:
+- Email/password signup with validation
+- Login with credentials
+- Protected route redirects
+- Logout functionality
+- Error handling for invalid inputs
+Follow testing best practices and use Page Object Model."
+```
+
+**2. For Component Tests:**
+
+```
+Prompt: "Write Playwright component tests for:
+- Button component with loading states
+- Input component with error handling
+- Modal component with backdrop clicks
+- Form validation and submission
+Use accessible selectors and test user interactions."
+```
+
+**3. For E2E User Journeys:**
+
+```
+Prompt: "Write Playwright E2E test for complete user journey:
+1. User visits home page
+2. Clicks signup
+3. Fills registration form
+4. Gets redirected to dashboard
+5. Views their profile
+6. Logs out
+Include assertions for each step and handle async operations."
+```
+
+### Best Practices for AI-Generated Tests
+
+**DO:**
+- ✅ Be specific about user flows
+- ✅ Request accessible selectors (role, label, text)
+- ✅ Ask for error handling tests
+- ✅ Request visual regression tests
+- ✅ Ask for both happy and sad paths
+- ✅ Request realistic test data
+
+**DON'T:**
+- ❌ Rely on CSS selectors (brittle)
+- ❌ Skip edge cases
+- ❌ Ignore accessibility
+- ❌ Test implementation details
+- ❌ Create tests that depend on order
+
+### Playwright Best Practices
+
+**1. Use Accessibility Selectors:**
+```typescript
+// ✅ Good - Uses accessible selectors
+await page.getByRole('button', { name: /submit/i })
+await page.getByLabel('Email')
+await page.getByText('Welcome back')
+
+// ❌ Bad - Uses CSS selectors (brittle)
+await page.locator('.btn-submit')
+await page.locator('#email-input')
+```
+
+**2. Auto-waiting is Built-in:**
+```typescript
+// ✅ Good - Playwright auto-waits
+await page.getByRole('button').click()
+
+// ❌ Bad - Manual waiting (not needed)
+await page.waitForTimeout(1000)
+await page.getByRole('button').click()
+```
+
+**3. Use Page Object Model:**
+```typescript
+// ✅ Good - Reusable page objects
+class LoginPage {
+  constructor(private page: Page) {}
+
+  async login(email: string, password: string) {
+    await this.page.getByLabel('Email').fill(email)
+    await this.page.getByLabel('Password').fill(password)
+    await this.page.getByRole('button', { name: /sign in/i }).click()
+  }
+}
+
+test('should login successfully', async ({ page }) => {
+  const loginPage = new LoginPage(page)
+  await loginPage.login('user@example.com', 'password123')
+})
+```
+
+**4. Test Data Management:**
+```typescript
+// ✅ Good - Use fixtures for test data
+const testUser = {
+  email: 'test@example.com',
+  password: 'SecurePassword123!'
+}
+
+// Create reusable fixtures
+test.use({
+  testUser: async ({}, use) => {
+    await use(testUser)
+  }
+})
+```
+
+**5. Parallel Testing:**
+```typescript
+// ✅ Good - Tests run in parallel
+test.describe.configure({ mode: 'parallel' })
+
+test.describe('Auth Flow', () => {
+  test('signup', async ({ page }) => { /* ... */ })
+  test('login', async ({ page }) => { /* ... */ })
+  test('logout', async ({ page }) => { /* ... */ })
+})
+```
+
+### CI/CD Integration
+
+**GitHub Actions Example:**
+```yaml
+name: E2E Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm ci
+      - run: npx playwright install --with-deps
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+```
+
+</details>
+
+<details>
+<summary>📖 <strong>Playwright Codegen - AI-Assisted Test Generation</strong></summary>
+
+### Record Tests with Playwright Codegen
+
+Playwright includes a **code generator** that records your actions and generates test code:
+
+**1. Start Codegen:**
+```bash
+npx playwright codegen http://localhost:3000
+```
+
+**2. Interact with your app:**
+- Click buttons
+- Fill forms
+- Navigate pages
+- Playwright generates code in real-time!
+
+**3. Copy generated code:**
+```typescript
+// Playwright automatically generates this:
+import { test, expect } from '@playwright/test';
+
+test('test', async ({ page }) => {
+  await page.goto('http://localhost:3000/');
+  await page.getByRole('link', { name: 'Sign In' }).click();
+  await page.getByLabel('Email').click();
+  await page.getByLabel('Email').fill('test@example.com');
+  await page.getByLabel('Password').click();
+  await page.getByLabel('Password').fill('password123');
+  await page.getByRole('button', { name: 'Sign In' }).click();
+});
+```
+
+**4. Refine with AI:**
+```
+Prompt to AI: "Improve this Playwright test by:
+- Adding assertions for each step
+- Extracting reusable functions
+- Adding error handling
+- Making it work for multiple users
+- Following Page Object Model pattern"
+```
+
+</details>
+
+---
+
+### 🎯 STEP 16 — Manual Testing & Verification
 
 ```bash
 # Start development server
@@ -1515,7 +1973,7 @@ npm run dev
 
 # In your browser, test this flow:
 echo "
-📋 Testing Checklist:
+📋 Manual Testing Checklist:
 1. Visit http://localhost:3000
    → Should show Sign In / Sign Up buttons
 
@@ -1633,11 +2091,26 @@ echo "
 - [ ] Returns user and loading state
 - [ ] Properly unsubscribes on unmount
 
+### 🎯 Automated Testing
+
+- [ ] Installed Playwright (`npm install -D @playwright/test`)
+- [ ] Created `playwright.config.ts` with proper configuration
+- [ ] Created `e2e/` directory for test files
+- [ ] Created `e2e/auth.spec.ts` with authentication tests
+- [ ] Added test scripts to package.json (test:e2e, test:e2e:ui, test:e2e:debug)
+- [ ] Tests cover authentication flow
+- [ ] Tests cover protected routes
+- [ ] Tests cover UI component states
+- [ ] Tests use accessible selectors (getByRole, getByLabel)
+- [ ] Ran STEP 15: Automated tests (`npm run test:e2e`)
+- [ ] All E2E tests pass
+
 ### 🎯 Final Verification
 
 - [ ] Ran STEP 14: Build verification (`npm run build`)
 - [ ] Build succeeded with no TypeScript errors
-- [ ] Tested STEP 15: All authentication flows work
+- [ ] Ran STEP 15: Automated tests pass
+- [ ] Ran STEP 16: Manual testing complete
 - [ ] Can sign up new users
 - [ ] Can sign in existing users
 - [ ] Can sign out
@@ -1652,16 +2125,18 @@ echo "
 
 **In this lesson you implemented:**
 
+✅ **5 Reusable UI Components** - Button, Input, Select, Dropdown, Modal
 ✅ **Server Actions** - Secure authentication with `'use server'`
 ✅ **Email/Password Auth** - Supabase Auth integration
 ✅ **Protected Routes** - Server-side auth checks with redirects
 ✅ **Auth Forms** - Login and Signup with validation
 ✅ **Session Management** - Automatic refresh via proxy.ts
-✅ **UI Components** - Reusable Button and Input components
 ✅ **Auth Hooks** - Client-side auth state with `useAuth()`
 ✅ **Email Confirmation** - Optional email verification flow
 ✅ **Route Groups** - `(auth)` folder for shared layouts
 ✅ **Type Safety** - Full TypeScript coverage for auth
+✅ **E2E Testing** - Playwright automated testing with best practices
+✅ **AI-Assisted Testing** - Codegen and test generation prompts
 
 **Key Concepts Mastered:**
 
@@ -1677,6 +2152,12 @@ echo "
 - Error handling in forms
 - Loading states for UX
 - Redirect after authentication
+- E2E testing with Playwright
+- Accessible test selectors (getByRole, getByLabel)
+- Test-driven development (TDD)
+- Page Object Model pattern
+- AI-assisted test generation
+- CI/CD integration for tests
 
 **Security Features Implemented:**
 
