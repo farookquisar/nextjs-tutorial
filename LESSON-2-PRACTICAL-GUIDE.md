@@ -2124,11 +2124,26 @@ supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.
 
 ### 🎯 STEP 13 — Create Example RPC Usage File
 
+**⚠️ Important:** This file contains example RPC function calls. You may see TypeScript errors until:
+1. You run the database migrations (STEP 6, 7, 8) in Supabase Dashboard
+2. You regenerate types from your actual database schema
+3. Or you can skip this step and create RPC wrappers later when needed
+
 ```bash
 cat > src/lib/supabase/rpc-examples.ts << 'RPC_EXAMPLES_EOF'
 /**
  * Example RPC function usage
  * These are type-safe database queries using RPC functions
+ *
+ * ⚠️ NOTE: These examples will show TypeScript errors until you:
+ * 1. Create the RPC functions in your Supabase database (see STEP 8)
+ * 2. Run the migrations in Supabase Dashboard
+ * 3. Regenerate types: supabase gen types typescript --project-id YOUR_ID
+ *
+ * For now, you can:
+ * - Skip this file and create it later
+ * - Or add // @ts-expect-error above lines with errors
+ * - Or create the database first, then come back to this step
  */
 
 import { createClient as createServerClient } from '@/lib/supabase/server'
@@ -2361,6 +2376,36 @@ RPC_EXAMPLES_EOF
 # Verify file created
 cat src/lib/supabase/rpc-examples.ts | head -30
 ```
+
+**💡 Handling TypeScript Errors:**
+
+If you see TypeScript errors like `Argument of type '{ project_uuid: string; }' is not assignable to parameter of type 'undefined'`, this is expected! Here are your options:
+
+**Option 1: Skip this file for now (Recommended for beginners)**
+```bash
+# Delete the file and create it later after database setup
+rm src/lib/supabase/rpc-examples.ts
+```
+
+**Option 2: Suppress TypeScript errors temporarily**
+Add `// @ts-expect-error` before problematic lines:
+```typescript
+// @ts-expect-error - Will work after database migration
+const { data, error } = await supabase.rpc('get_project_by_id', { project_uuid: projectId })
+```
+
+**Option 3: Create database first, then regenerate types (Recommended for production)**
+```bash
+# After running all migrations in Supabase Dashboard:
+supabase login
+supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts
+# Now TypeScript errors will disappear!
+```
+
+**Option 4: Use the file as reference only**
+- Keep the file but don't import it anywhere yet
+- Use it as a reference when you need to create RPC wrappers later
+- Build will succeed because unused files don't cause build errors
 
 <details>
 <summary>📖 <strong>How to use RPC functions</strong></summary>
@@ -2627,12 +2672,22 @@ SUPABASE_SERVICE_ROLE_KEY=...
 - [ ] Server client typed with `<Database>`
 - [ ] Both clients use publishable key (not service role)
 
+### 🎯 RPC Examples (Optional)
+
+- [ ] Created `rpc-examples.ts` file (or skipped for now)
+- [ ] Understand that TypeScript errors are expected until database is set up
+- [ ] Chose one of the 4 options for handling TypeScript errors
+- [ ] If kept file: Added `// @ts-expect-error` comments OR using as reference only
+- [ ] If deleted file: Plan to create it after database migration
+
+**Note:** It's OK to have TypeScript errors in this file - they'll disappear after database setup!
+
 ### 🎯 Code Quality
 
 - [ ] All files use import alias `@/`
 - [ ] No relative imports (`../`)
 - [ ] All table names use `prj_` prefix
-- [ ] Type-safe function signatures
+- [ ] Type-safe function signatures (where applicable)
 - [ ] Error handling in RPC examples
 - [ ] Comments explain complex logic
 - [ ] Consistent naming conventions
