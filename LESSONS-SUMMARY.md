@@ -702,3 +702,93 @@
 - `LESSON-9-PRACTICAL-GUIDE.md` - Search & filtering with full-text search
 - `LESSON-10-PRACTICAL-GUIDE.md` - Production deployment to Vercel
 - `LESSON-11-PRACTICAL-GUIDE.md` - Payments & subscriptions with Stripe
+- `LESSON-12-PRACTICAL-GUIDE.md` - Monitoring, observability & health checks
+
+## Lesson 12: Monitoring, Observability & Health Checks
+
+**Reference:** `LESSON-12-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- Comprehensive health check system for all components
+- Sentry integration for error tracking
+- Structured logging with Winston
+- Custom metrics collection system
+- Alert system with Slack/email notifications
+- Monitoring dashboard with real-time metrics
+- Uptime monitoring setup
+- Automated health check cron jobs
+
+**Monitoring Coverage:**
+- Authentication: Login success/failure rates, session tracking
+- Payments: Revenue tracking, webhook reliability, payment failures
+- Projects & Tasks: CRUD operation metrics, performance tracking
+- Storage: Upload success rates, storage usage monitoring
+- Database: Query performance, connection health
+- Real-time: WebSocket connection health, event delivery
+- Performance: Page load times, API latency, response times
+
+**Database changes:**
+- Created `metrics` table for storing application metrics
+- RPC function: `get_metrics_aggregate()` - Aggregate metrics by type and time range
+- Indexes for efficient metric queries
+
+**Key files created:**
+- `sentry.server.config.ts` - Sentry error tracking configuration
+- `supabase/migrations/008_metrics.sql` - Metrics table and RPC
+- `src/lib/monitoring/logger.ts` - Structured logging with Winston
+- `src/lib/monitoring/healthCheck.ts` - Health check framework
+- `src/lib/monitoring/checks/database.ts` - Database health check
+- `src/lib/monitoring/checks/auth.ts` - Authentication health check
+- `src/lib/monitoring/checks/payments.ts` - Stripe/payments health check
+- `src/lib/monitoring/checks/storage.ts` - Storage health check
+- `src/lib/monitoring/checks/realtime.ts` - Real-time health check
+- `src/lib/monitoring/metrics.ts` - Metrics collection system
+- `src/lib/monitoring/alerts.ts` - Alert system with Slack integration
+- `src/app/api/health/route.ts` - Main health check endpoint
+- `src/app/api/monitoring/dashboard/route.ts` - Dashboard metrics API
+- `src/app/api/cron/health-check/route.ts` - Automated health check cron
+- `src/app/dashboard/monitoring/page.tsx` - Monitoring dashboard page
+- `src/components/features/monitoring/MonitoringDashboard.tsx` - Dashboard UI
+- `src/components/features/monitoring/HealthCheckPanel.tsx` - Health status UI
+- `src/components/features/monitoring/MetricsPanel.tsx` - Metrics visualization
+
+**Key concepts:**
+- **Observability** - Logs, metrics, and traces for system visibility
+- **Health Checks** - Automated checks for all system components
+- **Structured Logging** - Consistent logging format with context
+- **Error Tracking** - Capture and analyze errors with Sentry
+- **Custom Metrics** - Business and technical metric collection
+- **Alerting** - Real-time notifications for issues
+- **Uptime Monitoring** - External monitoring services
+- **Performance Monitoring** - Response time and latency tracking
+
+**Monitoring features:**
+- Feature-segregated health checks (auth, payments, database, etc.)
+- Real-time error capture with stack traces and context
+- Custom business metrics (logins, revenue, feature usage)
+- Automated alerts via Slack/email for critical issues
+- Admin dashboard with metrics visualization
+- Log rotation and retention policies
+- Performance tracking per feature
+- Success/failure rate calculations
+
+**Technologies:** Sentry, Winston, Prometheus, Vercel Cron, Better Uptime, Slack Webhooks
+
+---
+
+## Learning Progression Summary
+
+**Lesson 1:** Setup → Next.js project foundation + constants.ts
+**Lesson 2:** Database → Supabase tables, RLS, migrations
+**Lesson 3:** Authentication → Login, signup, protected routes, UI components, E2E testing
+**Lesson 4:** CRUD → Full project management with Server Actions, validation, analytics
+**Lesson 5:** Tasks → Task CRUD, Next.js 16 cache, React 19.2 useEffectEvent, SOLID/DRY best practices
+**Lesson 6:** Team Collaboration → Many-to-many relationships, RBAC, permission matrix
+**Lesson 7:** Real-time → Supabase Realtime subscriptions, presence, broadcast events
+**Lesson 8:** File Storage → Supabase Storage, file uploads, signed URLs, image previews
+**Lesson 9:** Search → Full-text search, advanced filtering, pagination, autocomplete
+**Lesson 10:** Deployment → Production deployment to Vercel, monitoring, security
+**Lesson 11:** Payments → Stripe subscriptions, freemium model, billing management
+**Lesson 12:** Monitoring → Health checks, error tracking, metrics, alerts, observability
+
+---
