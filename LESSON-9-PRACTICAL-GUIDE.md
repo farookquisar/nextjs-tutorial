@@ -362,7 +362,57 @@ supabase db push
 
 ---
 
-## Step 2: Extend Constants for Search
+## Step 2: Configure Next.js 16 Cache Components
+
+Enable Cache Components in Next.js configuration:
+
+```bash
+cat > next.config.ts << 'EOF'
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
+  experimental: {
+    // Enable Next.js 16 Cache Components
+    cacheComponents: true,
+  },
+};
+
+export default nextConfig;
+EOF
+```
+
+**Why Cache Components for Search?**
+
+Search and filtering are perfect use cases for intelligent caching:
+- **Search results change infrequently** - Most queries return stable results
+- **Filters are reusable** - Same filter combinations are often reused
+- **Database queries are expensive** - Full-text search with PostgreSQL is CPU-intensive
+- **User experience** - Cached results load instantly
+
+**Cache Strategy:**
+```typescript
+// ✅ GOOD: Cache search results with query-specific tags
+async function SearchResults({ query }: { query: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('task-search')
+  cacheTag(`task-search-${query}`) // Query-specific
+  cacheTag('tasks') // Invalidate when tasks change
+
+  const results = await searchTasks(query)
+  return <ResultsList results={results} />
+}
+
+// ❌ BAD: Don't cache interactive filters (Client Components)
+'use client'
+function SearchFilters() {
+  // Client-side state management - no caching
+}
+```
+
+---
+
+## Step 3: Extend Constants for Search
 
 Add search and filter constants:
 
@@ -416,7 +466,7 @@ EOF
 
 ---
 
-## Step 3: Create Search Utilities
+## Step 4: Create Search Utilities
 
 Create utilities for search and debouncing:
 
@@ -547,9 +597,9 @@ EOF
 
 ---
 
-## Step 4: Create Search Server Action
+## Step 5: Create Cached Search Server Components
 
-Create Server Action for advanced search:
+First, create Server Actions that invalidate search caches:
 
 ```bash
 cat >> src/lib/actions/tasks.ts << 'EOF'
@@ -558,8 +608,11 @@ cat >> src/lib/actions/tasks.ts << 'EOF'
 // SEARCH & FILTERING (Lesson 9)
 // ============================================================
 
+import { updateTag } from 'next/cache';
+
 /**
  * Search tasks with advanced filtering
+ * NOTE: This is called from Server Components with 'use cache'
  */
 export async function searchTasks(params: {
   projectId?: string;
@@ -648,6 +701,7 @@ export async function searchTasks(params: {
 
 /**
  * Get search suggestions (autocomplete)
+ * NOTE: Called from cached Server Component
  */
 export async function getTaskSuggestions(projectId: string, partialQuery: string) {
   try {
@@ -680,12 +734,388 @@ export async function getTaskSuggestions(projectId: string, partialQuery: string
   }
 }
 
+/**
+ * EXAMPLE: Create task with cache invalidation
+ * This shows how to invalidate search caches when data changes
+ */
+export async function createTaskWithCacheInvalidation(input: {
+  project_id: string;
+  title: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+}) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Create task
+    const { data, error } = await supabase
+      .from('prj_tasks')
+      .insert({
+        ...input,
+        owner_id: user.id,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    // ✅ Invalidate search caches
+    updateTag('tasks'); // All task lists
+    updateTag('task-search'); // All search results
+    updateTag(`project-${input.project_id}-tasks`); // Project-specific tasks
+
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * EXAMPLE: Update task with cache invalidation
+ */
+export async function updateTaskWithCacheInvalidation(
+  taskId: string,
+  updates: Partial<{
+    title: string;
+    description: string;
+    status: string;
+    priority: string;
+  }>
+) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Get project_id before update
+    const { data: task } = await supabase
+      .from('prj_tasks')
+      .select('project_id')
+      .eq('id', taskId)
+      .single();
+
+    // Update task
+    const { data, error } = await supabase
+      .from('prj_tasks')
+      .update(updates)
+      .eq('id', taskId)
+      .select()
+      .single();
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    // ✅ Invalidate search caches
+    updateTag('tasks');
+    updateTag('task-search'); // All search results need refresh
+    if (task?.project_id) {
+      updateTag(`project-${task.project_id}-tasks`);
+    }
+    updateTag(`task-${taskId}`); // Specific task cache
+
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * EXAMPLE: Delete task with cache invalidation
+ */
+export async function deleteTaskWithCacheInvalidation(taskId: string) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Get project_id before delete
+    const { data: task } = await supabase
+      .from('prj_tasks')
+      .select('project_id')
+      .eq('id', taskId)
+      .single();
+
+    // Delete task
+    const { error } = await supabase
+      .from('prj_tasks')
+      .delete()
+      .eq('id', taskId);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    // ✅ Invalidate search caches
+    updateTag('tasks');
+    updateTag('task-search'); // All search results
+    if (task?.project_id) {
+      updateTag(`project-${task.project_id}-tasks`);
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 EOF
 ```
 
+Now create **cached Server Components** for search results:
+
+```bash
+mkdir -p src/components/features/search
+cat > src/components/features/search/TaskSearchResults.tsx << 'EOF'
+import { Suspense } from 'react';
+import { searchTasks } from '@/lib/actions/tasks';
+import { TaskCard } from '@/components/features/tasks/TaskCard';
+import type { Database } from '@/lib/types/database';
+
+type Task = Database['public']['Tables']['prj_tasks']['Row'] & {
+  relevance?: number;
+};
+
+type TaskSearchResultsProps = {
+  projectId?: string;
+  searchQuery?: string;
+  status?: string[];
+  priority?: string[];
+  sortBy?: string;
+  page?: number;
+};
+
+/**
+ * Cached Server Component for search results
+ * This component is cached and re-used for identical search queries
+ */
+async function TaskSearchResults({
+  projectId,
+  searchQuery,
+  status,
+  priority,
+  sortBy = 'relevance',
+  page = 1,
+}: TaskSearchResultsProps) {
+  'use cache';
+
+  // Cache for 1 hour - search results change infrequently
+  cacheLife('hours');
+
+  // Multiple cache tags for fine-grained invalidation
+  cacheTag('task-search'); // All search results
+  cacheTag('tasks'); // Invalidate when any task changes
+
+  // Query-specific cache tags
+  if (searchQuery) {
+    cacheTag(`task-search-${searchQuery}`);
+  }
+
+  // Filter-specific cache tags
+  if (status && status.length > 0) {
+    cacheTag(`task-filter-status-${status.sort().join('-')}`);
+  }
+  if (priority && priority.length > 0) {
+    cacheTag(`task-filter-priority-${priority.sort().join('-')}`);
+  }
+
+  // Project-specific cache tag
+  if (projectId) {
+    cacheTag(`project-${projectId}-tasks`);
+  }
+
+  const result = await searchTasks({
+    projectId,
+    searchQuery,
+    status,
+    priority,
+    sortBy,
+    page,
+    pageSize: 20,
+  });
+
+  if (!result.success || !result.data) {
+    return (
+      <div className="text-center py-8 text-red-500">
+        Error: {result.error || 'Failed to load search results'}
+      </div>
+    );
+  }
+
+  const { data: tasks, pagination } = result;
+
+  if (tasks.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        No tasks found. Try adjusting your search or filters.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="text-sm text-gray-600 mb-4">
+        Showing {tasks.length} of {pagination?.totalCount || 0} results
+        {searchQuery && ` for "${searchQuery}"`}
+      </div>
+
+      <div className="grid gap-4">
+        {tasks.map((task) => (
+          <TaskCard key={task.id} task={task} showRelevance={!!searchQuery} />
+        ))}
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className="flex justify-center gap-2 mt-6">
+          <div className="text-sm text-gray-600">
+            Page {pagination.page} of {pagination.totalPages}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Skeleton loader for search results
+ */
+function SearchResultsSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="border rounded-lg p-4 animate-pulse">
+          <div className="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Export with Suspense boundary
+ */
+export function CachedTaskSearchResults(props: TaskSearchResultsProps) {
+  return (
+    <Suspense fallback={<SearchResultsSkeleton />}>
+      <TaskSearchResults {...props} />
+    </Suspense>
+  );
+}
+
+EOF
+```
+
+Create cached autocomplete suggestions component:
+
+```bash
+cat > src/components/features/search/TaskAutocomplete.tsx << 'EOF'
+import { Suspense } from 'react';
+import { getTaskSuggestions } from '@/lib/actions/tasks';
+
+type TaskAutocompleteProps = {
+  projectId: string;
+  query: string;
+  onSelect: (suggestion: string) => void;
+};
+
+/**
+ * Cached Server Component for autocomplete suggestions
+ * Cached with shorter duration since autocomplete is more dynamic
+ */
+async function TaskAutocomplete({
+  projectId,
+  query,
+  onSelect,
+}: TaskAutocompleteProps) {
+  'use cache';
+
+  // Shorter cache for autocomplete - 5 minutes
+  cacheLife('minutes');
+
+  // Cache tags
+  cacheTag('task-autocomplete');
+  cacheTag(`autocomplete-${query}`);
+  cacheTag(`project-${projectId}-autocomplete`);
+
+  const result = await getTaskSuggestions(projectId, query);
+
+  if (!result.success || !result.data || result.data.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+      {result.data.map((item, index) => (
+        <button
+          key={index}
+          onClick={() => onSelect(item.suggestion)}
+          className="w-full text-left px-4 py-2 hover:bg-gray-100"
+        >
+          {item.suggestion}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Skeleton loader for autocomplete
+ */
+function AutocompleteSkeleton() {
+  return (
+    <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg">
+      <div className="px-4 py-2 animate-pulse">
+        <div className="h-4 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Export with Suspense boundary
+ */
+export function CachedTaskAutocomplete(props: TaskAutocompleteProps) {
+  return (
+    <Suspense fallback={<AutocompleteSkeleton />}>
+      <TaskAutocomplete {...props} />
+    </Suspense>
+  );
+}
+
+EOF
+```
+
+**Key Points:**
+
+1. **`'use cache'` directive** - Marks component as cacheable
+2. **`cacheLife('hours')`** - Search results cached for 1 hour
+3. **`cacheLife('minutes')`** - Autocomplete cached for 5 minutes (more dynamic)
+4. **Multiple cache tags** - Fine-grained invalidation:
+   - `task-search` - Invalidates all search results
+   - `task-search-${query}` - Invalidates specific query
+   - `task-filter-${type}-${values}` - Invalidates specific filter combinations
+   - `project-${id}-tasks` - Invalidates project-specific caches
+5. **Suspense boundaries** - Provides loading states during cache misses
+
 ---
 
-## Step 5: Create useSearch Hook
+## Step 6: Create useSearch Hook
 
 Create a custom hook for search functionality:
 
@@ -778,7 +1208,7 @@ EOF
 
 ---
 
-## Step 6: Create useFilters Hook
+## Step 7: Create useFilters Hook
 
 Create a hook for managing filters:
 
@@ -925,9 +1355,11 @@ EOF
 
 ---
 
-## Step 7: Create Search Input Component
+## Step 8: Create Search Input Component
 
 Create a search input with suggestions:
+
+**Note:** This is a **Client Component** for interactivity. It updates the URL via `useSearch` hook, which causes the parent Server Component to re-render with cached results. The `onSearch` callback is optional and used for custom handling.
 
 ```bash
 mkdir -p src/components/features/search
@@ -1104,7 +1536,7 @@ EOF
 
 ---
 
-## Step 8: Create Filter Components
+## Step 9: Create Filter Components
 
 Create multi-select filter component:
 
@@ -1209,100 +1641,46 @@ EOF
 
 ---
 
-## Step 9: Create Task Search Page
+## Step 10: Create Task Search Page with Caching
 
-Create a complete search page with filters:
+Create a search page that uses cached Server Components:
 
 ```bash
 cat > src/app/dashboard/tasks/search/page.tsx << 'EOF'
-'use client';
-
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { searchTasks } from '@/lib/actions/tasks';
+import { Suspense } from 'react';
 import { SearchInput } from '@/components/features/search/SearchInput';
-import { MultiSelectFilter } from '@/components/features/search/MultiSelectFilter';
-import { useFilters } from '@/hooks/search/useFilters';
-import { TaskCard } from '@/components/features/tasks/TaskCard';
+import { SearchFiltersClient } from '@/components/features/search/SearchFiltersClient';
+import { CachedTaskSearchResults } from '@/components/features/search/TaskSearchResults';
 import {
-  TASK_STATUS,
   TASK_STATUS_LABELS,
-  TASK_PRIORITY,
   TASK_PRIORITY_LABELS,
   SORT_OPTIONS,
   SORT_LABELS,
 } from '@/constants';
-import type { Database } from '@/lib/types/database';
 
-type Task = Database['public']['Tables']['prj_tasks']['Row'];
-
-export default function TaskSearchPage() {
-  const searchParams = useSearchParams();
-  const projectId = searchParams.get('projectId') || undefined;
-
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    pageSize: 20,
-    totalCount: 0,
-    totalPages: 0,
-  });
-
-  const { filters, setFilter, clearAllFilters, hasActiveFilters } = useFilters({
-    initialFilters: {
-      status: null,
-      priority: null,
-      sortBy: SORT_OPTIONS.RELEVANCE,
-    },
-    syncWithUrl: true,
-  });
-
-  const performSearch = async (query?: string, page = 1) => {
-    setLoading(true);
-
-    const result = await searchTasks({
-      projectId,
-      searchQuery: query || searchParams.get('q') || undefined,
-      status: filters.status as string[] | undefined,
-      priority: filters.priority as string[] | undefined,
-      sortBy: (filters.sortBy as string) || SORT_OPTIONS.RELEVANCE,
-      page,
-      pageSize: pagination.pageSize,
-    });
-
-    if (result.success && result.data) {
-      setTasks(result.data);
-      if (result.pagination) {
-        setPagination(result.pagination);
-      }
-    }
-
-    setLoading(false);
+type SearchPageProps = {
+  searchParams: {
+    q?: string;
+    projectId?: string;
+    status?: string;
+    priority?: string;
+    sortBy?: string;
+    page?: string;
   };
+};
 
-  // Search when filters change
-  useEffect(() => {
-    performSearch();
-  }, [filters, searchParams]);
-
-  // Status options
-  const statusOptions = Object.entries(TASK_STATUS_LABELS).map(([value, label]) => ({
-    value,
-    label,
-  }));
-
-  // Priority options
-  const priorityOptions = Object.entries(TASK_PRIORITY_LABELS).map(([value, label]) => ({
-    value,
-    label,
-  }));
-
-  // Sort options
-  const sortOptions = Object.entries(SORT_LABELS).map(([value, label]) => ({
-    value,
-    label,
-  }));
+/**
+ * Search page - Server Component with cached results
+ * This is a Server Component that passes URL params to cached child components
+ */
+export default function TaskSearchPage({ searchParams }: SearchPageProps) {
+  // Parse URL parameters
+  const query = searchParams.q || undefined;
+  const projectId = searchParams.projectId || undefined;
+  const status = searchParams.status?.split(',') || undefined;
+  const priority = searchParams.priority?.split(',') || undefined;
+  const sortBy = searchParams.sortBy || SORT_OPTIONS.RELEVANCE;
+  const page = parseInt(searchParams.page || '1', 10);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -1312,111 +1690,310 @@ export default function TaskSearchPage() {
         <p className="text-gray-600">Find tasks with advanced search and filters</p>
       </div>
 
-      {/* Search Input */}
+      {/* Search Input - Client Component for interactivity */}
       <SearchInput
         projectId={projectId || ''}
-        onSearch={performSearch}
+        placeholder="Search tasks..."
         showSuggestions={!!projectId}
       />
 
-      {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <MultiSelectFilter
-          label="Status"
-          options={statusOptions}
-          value={(filters.status as string[]) || []}
-          onChange={(values) => setFilter('status', values)}
-        />
+      {/* Filters - Client Component for interactivity */}
+      <SearchFiltersClient
+        statusOptions={Object.entries(TASK_STATUS_LABELS).map(([value, label]) => ({
+          value,
+          label,
+        }))}
+        priorityOptions={Object.entries(TASK_PRIORITY_LABELS).map(([value, label]) => ({
+          value,
+          label,
+        }))}
+        sortOptions={Object.entries(SORT_LABELS).map(([value, label]) => ({
+          value,
+          label,
+        }))}
+        currentStatus={status}
+        currentPriority={priority}
+        currentSortBy={sortBy}
+      />
 
-        <MultiSelectFilter
-          label="Priority"
-          options={priorityOptions}
-          value={(filters.priority as string[]) || []}
-          onChange={(values) => setFilter('priority', values)}
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Sort By
-          </label>
-          <select
-            value={(filters.sortBy as string) || SORT_OPTIONS.RELEVANCE}
-            onChange={(e) => setFilter('sortBy', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
-          >
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {hasActiveFilters && (
-          <div className="flex items-end">
-            <button
-              onClick={clearAllFilters}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-            >
-              Clear Filters
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Results */}
-      <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading...</div>
-        ) : tasks.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            No tasks found. Try adjusting your search or filters.
-          </div>
-        ) : (
-          <>
-            <div className="text-sm text-gray-600">
-              Showing {tasks.length} of {pagination.totalCount} results
-            </div>
-
-            <div className="grid gap-4">
-              {tasks.map((task) => (
-                <TaskCard key={task.id} task={task} />
-              ))}
-            </div>
-
-            {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-6">
-                <button
-                  onClick={() => performSearch(searchParams.get('q') || '', pagination.page - 1)}
-                  disabled={!pagination.hasPreviousPage}
-                  className="px-4 py-2 border rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Previous
-                </button>
-
-                <span className="px-4 py-2">
-                  Page {pagination.page} of {pagination.totalPages}
-                </span>
-
-                <button
-                  onClick={() => performSearch(searchParams.get('q') || '', pagination.page + 1)}
-                  disabled={!pagination.hasNextPage}
-                  className="px-4 py-2 border rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      {/*
+        Cached Search Results - Server Component with 'use cache'
+        This component is automatically cached and reused for identical queries
+        When tasks change, updateTag('task-search') invalidates all search caches
+      */}
+      <CachedTaskSearchResults
+        projectId={projectId}
+        searchQuery={query}
+        status={status}
+        priority={priority}
+        sortBy={sortBy}
+        page={page}
+      />
     </div>
   );
 }
 
 EOF
 ```
+
+Create the Client Component for filters:
+
+```bash
+cat > src/components/features/search/SearchFiltersClient.tsx << 'EOF'
+'use client';
+
+import { MultiSelectFilter } from './MultiSelectFilter';
+import { useFilters } from '@/hooks/search/useFilters';
+import { SORT_OPTIONS } from '@/constants';
+
+type Option = {
+  value: string;
+  label: string;
+};
+
+type SearchFiltersClientProps = {
+  statusOptions: Option[];
+  priorityOptions: Option[];
+  sortOptions: Option[];
+  currentStatus?: string[];
+  currentPriority?: string[];
+  currentSortBy?: string;
+};
+
+/**
+ * Client Component for interactive filters
+ * This handles user interactions and updates URL params
+ */
+export function SearchFiltersClient({
+  statusOptions,
+  priorityOptions,
+  sortOptions,
+  currentStatus = [],
+  currentPriority = [],
+  currentSortBy = SORT_OPTIONS.RELEVANCE,
+}: SearchFiltersClientProps) {
+  const { filters, setFilter, clearAllFilters, hasActiveFilters } = useFilters({
+    initialFilters: {
+      status: currentStatus,
+      priority: currentPriority,
+      sortBy: currentSortBy,
+    },
+    syncWithUrl: true,
+  });
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <MultiSelectFilter
+        label="Status"
+        options={statusOptions}
+        value={(filters.status as string[]) || []}
+        onChange={(values) => setFilter('status', values)}
+      />
+
+      <MultiSelectFilter
+        label="Priority"
+        options={priorityOptions}
+        value={(filters.priority as string[]) || []}
+        onChange={(values) => setFilter('priority', values)}
+      />
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Sort By
+        </label>
+        <select
+          value={(filters.sortBy as string) || SORT_OPTIONS.RELEVANCE}
+          onChange={(e) => setFilter('sortBy', e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          {sortOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {hasActiveFilters && (
+        <div className="flex items-end">
+          <button
+            onClick={clearAllFilters}
+            className="w-full px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Clear Filters
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+EOF
+```
+
+**Architecture Explanation:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ TaskSearchPage (Server Component)                           │
+│ - Reads URL search params                                   │
+│ - No caching at this level                                  │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ├── SearchInput (Client Component)
+               │   └── Interactive search with debouncing
+               │
+               ├── SearchFiltersClient (Client Component)
+               │   └── Interactive filters, updates URL
+               │
+               └── CachedTaskSearchResults (Server Component)
+                   └── 'use cache' + cacheLife('hours')
+                   └── Cached by query + filters
+                   └── Invalidated by updateTag('task-search')
+```
+
+**Why This Architecture?**
+
+1. **Parent is Server Component** - Fast initial render, SEO-friendly
+2. **Interactive UI is Client** - SearchInput and filters need user interaction
+3. **Results are Cached Server Component** - Heavy database queries are cached
+4. **URL as source of truth** - Shareable links, browser back/forward works
+5. **Fine-grained invalidation** - Only invalidate affected caches
+
+---
+
+## Understanding Search Caching Strategy
+
+### Why Cache Search Results?
+
+Search and filtering are **perfect candidates for caching** because:
+
+1. **Search results are stable** - A query for "urgent bug" will return similar results over time
+2. **Queries are repeated** - Users often search for the same terms
+3. **Database queries are expensive** - PostgreSQL full-text search with `ts_rank` is CPU-intensive
+4. **User experience** - Instant results feel magical
+
+### Cache Duration Strategy
+
+Different types of search content have different cache durations:
+
+```typescript
+// ✅ Search Results - Cache for 1 hour
+'use cache'
+cacheLife('hours')  // Results change infrequently
+
+// ✅ Autocomplete - Cache for 5 minutes
+'use cache'
+cacheLife('minutes')  // More dynamic, shorter cache
+
+// ❌ Interactive Filters - No caching
+'use client'  // Client-side state, not cacheable
+```
+
+### Cache Tag Strategy
+
+Use **multiple cache tags** for fine-grained invalidation:
+
+```typescript
+async function TaskSearchResults({ query, status, priority, projectId }) {
+  'use cache'
+  cacheLife('hours')
+
+  // Global tags - invalidate ALL search results
+  cacheTag('tasks')          // When any task changes
+  cacheTag('task-search')    // When search needs refresh
+
+  // Query-specific tags - invalidate specific queries
+  cacheTag(`task-search-${query}`)  // Only this query
+
+  // Filter-specific tags - invalidate specific filter combinations
+  cacheTag(`task-filter-status-${status.sort().join('-')}`)
+  cacheTag(`task-filter-priority-${priority.sort().join('-')}`)
+
+  // Project-specific tags - invalidate project caches
+  cacheTag(`project-${projectId}-tasks`)
+
+  // ... fetch and return results
+}
+```
+
+### Cache Invalidation Strategy
+
+When tasks are created, updated, or deleted:
+
+```typescript
+export async function createTask(input) {
+  // ... create task in database
+
+  // ✅ Invalidate multiple cache tags
+  updateTag('tasks')              // Invalidate ALL task lists
+  updateTag('task-search')        // Invalidate ALL search results
+  updateTag(`project-${projectId}-tasks`)  // Project-specific
+
+  // This ensures:
+  // 1. All search results reflect the new task
+  // 2. Project-specific views update
+  // 3. Global task lists update
+  // 4. Filter combinations update automatically
+}
+```
+
+### Trade-offs: Cache Freshness vs Performance
+
+| Approach | Freshness | Performance | Best For |
+|----------|-----------|-------------|----------|
+| **No caching** | Always fresh | Slow | Real-time data |
+| **Short cache (5 min)** | Very fresh | Fast | Autocomplete |
+| **Medium cache (1 hour)** | Fresh enough | Very fast | Search results |
+| **Long cache (1 day)** | Stale possible | Instant | Static content |
+
+**Our Choice:** 1 hour cache with tag-based invalidation
+- Fresh enough for most use cases
+- Instant for cache hits
+- Invalidated immediately when data changes
+
+### Query-Specific vs Global Invalidation
+
+**Query-Specific Tags:**
+```typescript
+cacheTag(`task-search-${query}`)
+// Only invalidates searches for "urgent bug"
+// Other searches remain cached
+```
+
+**Global Tags:**
+```typescript
+updateTag('task-search')
+// Invalidates ALL search results
+// Use when underlying data changes
+```
+
+**Filter-Specific Tags:**
+```typescript
+cacheTag(`task-filter-status-${status.sort().join('-')}`)
+// Only invalidates this specific filter combination
+// status=['todo','in_progress'] vs status=['done']
+```
+
+### When to Invalidate
+
+| Action | Tags to Invalidate | Why |
+|--------|-------------------|-----|
+| **Create task** | `tasks`, `task-search`, `project-X-tasks` | New task appears in all views |
+| **Update task** | `tasks`, `task-search`, `task-X`, `project-X-tasks` | Task details changed |
+| **Delete task** | `tasks`, `task-search`, `project-X-tasks` | Task removed from all views |
+| **Update status** | `tasks`, `task-search`, `task-filter-status-*` | Affects status filters |
+| **Update priority** | `tasks`, `task-search`, `task-filter-priority-*` | Affects priority filters |
+
+### Caching Best Practices
+
+1. **✅ Cache expensive queries** - Full-text search, joins, aggregations
+2. **✅ Use multiple tags** - Enable fine-grained invalidation
+3. **✅ Normalize tag values** - Sort arrays before creating tags
+4. **✅ Wrap in Suspense** - Provide loading states during cache misses
+5. **❌ Don't cache user-specific data** - Unless tagged by user ID
+6. **❌ Don't cache real-time data** - Chat messages, live updates
+7. **❌ Don't cache forms** - Interactive UI should be Client Components
 
 ---
 
@@ -1464,7 +2041,66 @@ EOF
 4. Open URL in new tab
 5. **Expected:** Same search query and filters applied ✅
 
-### 6. Verify Database Performance
+### 6. Test Cache Components
+
+**Browser DevTools:**
+1. Open React DevTools
+2. Perform search: "urgent bug"
+3. **Expected:** See `TaskSearchResults` Server Component ✅
+4. **Expected:** Component shows as cached on second load ✅
+
+**Next.js Terminal:**
+1. Watch server logs during search
+2. First search: See database query logs
+3. Second identical search: No database query (cache hit!) ✅
+
+### 7. Test Cache Invalidation
+
+**Browser:**
+1. Search for "bug" - note results count
+2. Create a new task with "bug" in title
+3. Search for "bug" again
+4. **Expected:** New task appears immediately (cache invalidated) ✅
+
+**How it works:**
+```typescript
+// When task is created:
+createTaskWithCacheInvalidation()
+  ↓
+updateTag('task-search')  // Invalidates all search caches
+  ↓
+Next search fetches fresh data
+```
+
+### 8. Test Suspense Boundaries
+
+**Browser with Throttled Network:**
+1. DevTools → Network → Slow 3G
+2. Perform search query
+3. **Expected:** See skeleton loader during fetch ✅
+4. **Expected:** Smooth transition to results ✅
+
+### 9. Test Query-Specific Cache Tags
+
+**Next.js Cache Debug (add to next.config.ts):**
+```typescript
+const nextConfig: NextConfig = {
+  experimental: {
+    cacheComponents: true,
+  },
+  logging: {
+    fetches: {
+      fullUrl: true,
+    },
+  },
+};
+```
+
+1. Search for "bug" (creates cache entry with tag `task-search-bug`)
+2. Search for "urgent" (creates separate cache entry with tag `task-search-urgent`)
+3. **Expected:** Two separate cache entries ✅
+
+### 10. Verify Database Performance
 
 **Supabase Dashboard → SQL Editor:**
 
@@ -1482,16 +2118,34 @@ ORDER BY ts_rank(search_vector, to_tsquery('english', 'bug:* & auth:*')) DESC;
 
 ## What You Learned
 
+### Database & Search
 ✅ **PostgreSQL Full-Text Search** - tsvector, tsquery, ts_rank
 ✅ **GIN Indexes** - Fast full-text search performance
+✅ **Search Highlighting** - Show matching terms in results
+✅ **Autocomplete** - Search suggestions as user types
+
+### Next.js 16 Cache Components
+✅ **'use cache' directive** - Mark Server Components as cacheable
+✅ **cacheLife() API** - Set cache duration (minutes, hours, days)
+✅ **cacheTag() API** - Tag caches for fine-grained invalidation
+✅ **updateTag() API** - Invalidate specific cache tags
+✅ **Suspense boundaries** - Loading states during cache misses
+✅ **Cache strategy** - When to cache, how long, what to invalidate
+
+### Advanced Patterns
 ✅ **Debouncing** - Optimize API calls for search inputs
 ✅ **Advanced Filtering** - Multi-select, date ranges, combinations
 ✅ **Pagination** - Offset-based with total count
-✅ **URL State Management** - Persist filters in URL
-✅ **Search Highlighting** - Show matching terms
-✅ **Autocomplete** - Search suggestions as user types
-✅ **Performance Optimization** - Database indexes
+✅ **URL State Management** - Persist filters in URL for sharing
+✅ **Query-specific caching** - Cache each query independently
+✅ **Filter-specific caching** - Cache each filter combination
 ✅ **Type Safety** - TypeScript for search parameters
+
+### Architecture
+✅ **Server Component caching** - Cache expensive database queries
+✅ **Client Component interactivity** - Keep UI interactive
+✅ **Mixed component architecture** - Server + Client composition
+✅ **Tag-based invalidation** - Global vs query-specific invalidation
 
 ---
 
@@ -1512,24 +2166,62 @@ ORDER BY ts_rank(search_vector, to_tsquery('english', 'bug:* & auth:*')) DESC;
 
 ## Reference
 
-**Files Created:**
+**Files Created/Modified:**
+- `next.config.ts` - **NEW** Cache Components configuration
 - `supabase/migrations/006_full_text_search.sql` - Full-text search setup
 - `src/constants/index.ts` - Search constants (EXTENDED)
 - `src/utils/search/debounce.ts` - Debounce utilities
 - `src/utils/search/highlight.ts` - Search highlighting
-- `src/lib/actions/tasks.ts` - Search Server Actions (EXTENDED)
-- `src/hooks/search/useSearch.ts` - Search hook
-- `src/hooks/search/useFilters.ts` - Filters hook
-- `src/components/features/search/SearchInput.tsx` - Search input with autocomplete
+- `src/lib/actions/tasks.ts` - **UPDATED** Search Server Actions with cache invalidation
+- `src/hooks/search/useSearch.ts` - Search hook with debouncing
+- `src/hooks/search/useFilters.ts` - Filters hook with URL sync
+- `src/components/features/search/SearchInput.tsx` - Interactive search input
 - `src/components/features/search/MultiSelectFilter.tsx` - Multi-select filter
-- `src/app/dashboard/tasks/search/page.tsx` - Search page
+- `src/components/features/search/TaskSearchResults.tsx` - **NEW** Cached search results Server Component
+- `src/components/features/search/TaskAutocomplete.tsx` - **NEW** Cached autocomplete Server Component
+- `src/components/features/search/SearchFiltersClient.tsx` - **NEW** Interactive filters Client Component
+- `src/app/dashboard/tasks/search/page.tsx` - **UPDATED** Search page with cached components
 
 **Key Concepts:**
+
+### Database & Search
 - Full-text search vectors (tsvector)
 - Search queries (tsquery)
 - Relevance ranking (ts_rank)
 - GIN indexes for performance
-- Debouncing for optimization
+- RPC functions for advanced queries
+
+### Next.js 16 Caching
+- `'use cache'` directive for Server Components
+- `cacheLife()` - Set cache duration
+- `cacheTag()` - Tag caches for invalidation
+- `updateTag()` - Invalidate specific tags
+- Suspense boundaries for loading states
+
+### Patterns & Architecture
+- Query-specific cache tags (`task-search-${query}`)
+- Filter-specific cache tags (`task-filter-status-${values}`)
+- Global cache invalidation (`updateTag('task-search')`)
+- Mixed Server/Client component architecture
+- Debouncing for user input
 - URL as state management
 
-**PostgreSQL Full-Text Search Docs:** https://www.postgresql.org/docs/current/textsearch.html
+**Important APIs:**
+
+```typescript
+// Cache Components APIs
+'use cache'                    // Mark component as cacheable
+cacheLife('minutes' | 'hours') // Set cache duration
+cacheTag('tag-name')           // Tag for invalidation
+updateTag('tag-name')          // Invalidate tagged caches
+
+// Suspense for loading states
+<Suspense fallback={<Skeleton />}>
+  <CachedComponent />
+</Suspense>
+```
+
+**External Resources:**
+- **PostgreSQL Full-Text Search:** https://www.postgresql.org/docs/current/textsearch.html
+- **Next.js 16 Caching:** https://nextjs.org/docs/app/api-reference/directives/use-cache
+- **React Suspense:** https://react.dev/reference/react/Suspense

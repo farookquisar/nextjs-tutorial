@@ -11,9 +11,11 @@
 In this lesson, you'll implement **Task Management** for projects using the **prj_tasks** table created in Lesson 2, while applying **production-grade best practices**:
 
 ✅ **Constants Extension** - Add task-specific constants to `src/constants/index.ts` (created in Lesson 1)
-✅ **Next.js 16 'use cache'** - Apply cache directive to Server Actions (cacheComponents enabled in Lesson 1)
+✅ **Next.js 16 Cache Components** - Cached async components with `'use cache'`, `cacheLife()`, and `cacheTag()`
+✅ **Tag-Based Revalidation** - Use `updateTag()` instead of `revalidatePath()` for surgical cache updates
+✅ **Suspense Boundaries** - Skeleton loaders for instant feedback and streaming
 ✅ **React 19.2 useEffectEvent** - Avoid stale closures in effects
-✅ **Task CRUD Operations** - Create, read, update, delete tasks
+✅ **Task CRUD Operations** - Create, read, update, delete tasks with optimized caching
 ✅ **RPC Functions** - Complex task queries and statistics
 ✅ **SOLID Principles** - Single Responsibility, DRY code
 ✅ **Type-safe Everything** - Zero magic values, full TypeScript
@@ -36,9 +38,11 @@ In this lesson, you'll implement **Task Management** for projects using the **pr
 ### What You'll Implement
 
 ✅ **Constants Extension** - Add task-specific constants to `src/constants/index.ts` (created in Lesson 1)
-✅ **Use Cache Directive** - Apply `use cache` to Server Actions (cacheComponents already enabled in Lesson 1)
+✅ **Cache Components** - Separate cached async components with `'use cache'`, `cacheLife()`, `cacheTag()`
+✅ **Tag-Based Revalidation** - `updateTag()` in Server Actions for surgical cache invalidation
+✅ **Suspense Boundaries** - Skeleton loaders and streaming with React Suspense
 ✅ **useEffectEvent** - React 19.2 hook for non-reactive effect logic
-✅ **Task CRUD** - Full task management with validation
+✅ **Task CRUD** - Full task management with validation and optimized caching
 ✅ **RPC Functions** - `get_tasks_by_project()`, `get_task_stats()`
 ✅ **Task Filtering** - By status, priority, overdue, project
 ✅ **Reusable Components** - TaskCard, TaskList, TaskForm, TaskStats
@@ -82,7 +86,9 @@ In this lesson, you'll implement **Task Management** for projects using the **pr
 ### Why This Approach?
 
 ✅ **Maintainable** - Constants file makes updates easy, no hunt for hardcoded values
-✅ **Performant** - Cache components reduce database queries dramatically
+✅ **Performant** - Cache Components with `'use cache'` reduce database queries dramatically
+✅ **Surgical Updates** - `updateTag()` revalidates only affected caches, not entire routes
+✅ **Better UX** - Suspense boundaries provide instant feedback with skeleton loaders
 ✅ **Clean Code** - SOLID principles, DRY, single responsibility
 ✅ **Type-safe** - TypeScript + Zod + database types = zero runtime errors
 ✅ **Future-proof** - Next.js 16 and React 19.2 latest features
@@ -775,7 +781,7 @@ cat > src/lib/actions/tasks.ts << 'EOF'
 // Next.js 16 Cache Components + React 19.2
 // ============================================
 
-import { revalidateTag } from 'next/cache';
+import { updateTag } from 'next/cache';
 import { createServerClient } from '@/lib/supabase/server';
 import { createTaskSchema, updateTaskSchema } from '@/lib/validations/task';
 import type { CreateTaskInput, UpdateTaskInput, Task, TaskWithOverdue, TaskStats } from '@/lib/types/database';
@@ -834,8 +840,8 @@ export async function createTask(input: CreateTaskInput): Promise<{ success: boo
     }
 
     // Revalidate cache
-    revalidateTag(CACHE_TAGS.TASKS);
-    revalidateTag(CACHE_TAGS.TASK_STATS);
+    updateTag(CACHE_TAGS.TASKS);
+    updateTag(CACHE_TAGS.TASK_STATS);
 
     return { success: true, data };
   } catch (error) {
@@ -859,8 +865,6 @@ export async function getTasksByProject(
     overdueOnly?: boolean;
   }
 ): Promise<{ success: boolean; data?: TaskWithOverdue[]; error?: string }> {
-  'use cache'; // ← Next.js 16 Cache Directive
-
   try {
     await getAuthenticatedUser();
 
@@ -892,8 +896,6 @@ export async function getTasksByProject(
 // ============================================
 
 export async function getTask(taskId: string): Promise<{ success: boolean; data?: Task; error?: string }> {
-  'use cache'; // ← Next.js 16 Cache Directive
-
   try {
     await getAuthenticatedUser();
 
@@ -951,8 +953,8 @@ export async function updateTask(
     }
 
     // Revalidate cache
-    revalidateTag(CACHE_TAGS.TASKS);
-    revalidateTag(CACHE_TAGS.TASK_STATS);
+    updateTag(CACHE_TAGS.TASKS);
+    updateTag(CACHE_TAGS.TASK_STATS);
 
     return { success: true, data };
   } catch (error) {
@@ -984,8 +986,8 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean; er
     }
 
     // Revalidate cache
-    revalidateTag(CACHE_TAGS.TASKS);
-    revalidateTag(CACHE_TAGS.TASK_STATS);
+    updateTag(CACHE_TAGS.TASKS);
+    updateTag(CACHE_TAGS.TASK_STATS);
 
     return { success: true };
   } catch (error) {
@@ -1002,8 +1004,6 @@ export async function deleteTask(taskId: string): Promise<{ success: boolean; er
 // ============================================
 
 export async function getTaskStats(projectId: string): Promise<{ success: boolean; data?: TaskStats; error?: string }> {
-  'use cache'; // ← Next.js 16 Cache Directive
-
   try {
     await getAuthenticatedUser();
 
@@ -1050,8 +1050,8 @@ export async function toggleTaskStatus(taskId: string, currentStatus: string): P
     }
 
     // Revalidate cache
-    revalidateTag(CACHE_TAGS.TASKS);
-    revalidateTag(CACHE_TAGS.TASK_STATS);
+    updateTag(CACHE_TAGS.TASKS);
+    updateTag(CACHE_TAGS.TASK_STATS);
 
     return { success: true };
   } catch (error) {
@@ -1075,53 +1075,58 @@ npx tsc --noEmit src/lib/actions/tasks.ts
 ```
 
 <details>
-<summary>📖 <strong>Next.js 16 'use cache' Directive Explained</strong></summary>
+<summary>📖 <strong>Next.js 16 Cache Components Explained</strong></summary>
 
-### What is 'use cache'?
+### What are Cache Components?
 
-The `'use cache'` directive tells Next.js to cache the return value of an async function.
+Cache Components use the `'use cache'` directive in async component functions to cache rendered output with fine-grained control.
 
 ### How It Works
 
 ```typescript
-export async function getTasksByProject(projectId: string) {
-  'use cache'; // ← Cache this function's result
+// Cached async component (NOT a Server Action)
+async function TasksListSection({ projectId }: { projectId: string }) {
+  'use cache'                      // ← Enable caching for this component
+  cacheLife('hours')              // ← Cache for 1 hour
+  cacheTag('tasks')               // ← Tag for selective revalidation
+  cacheTag(`tasks-${projectId}`)  // ← Project-specific tag
 
-  const { data } = await supabase.rpc('get_tasks_by_project', { p_project_id: projectId });
-  return data;
+  const result = await getTasksByProject(projectId);
+  return <TaskList tasks={result.data || []} />
 }
 ```
 
-**First call:** Query database, return data, store in cache
-**Subsequent calls:** Return cached data (NO database query!)
+**First render:** Fetch data, render component, store in cache
+**Subsequent renders:** Return cached result (NO database query, NO re-render!)
 
 ### Cache Invalidation
 
-When you mutate data (create/update/delete), invalidate the cache:
+When you mutate data (create/update/delete), invalidate specific cache tags:
 
 ```typescript
-import { revalidateTag } from 'next/cache';
+import { updateTag } from 'next/cache';
 
 export async function createTask(input) {
   // ... create task ...
 
-  // Invalidate cache so next read gets fresh data
-  revalidateTag(CACHE_TAGS.TASKS);
-  revalidateTag(CACHE_TAGS.TASK_STATS);
+  // Invalidate only affected caches
+  updateTag('tasks');              // All task lists
+  updateTag(`tasks-${projectId}`); // This project's tasks
+  updateTag('task-stats');         // Task statistics
 }
 ```
 
 ### Benefits
 
-- **Faster** - Cached reads skip database entirely
-- **Scalable** - Reduces database load
-- **Automatic** - No manual cache management
+- **Faster** - Cached components served instantly from edge
+- **Scalable** - Reduces database load dramatically
+- **Selective** - Only invalidate what changed with tags
+- **Automatic** - Works with Suspense and PPR
 
-### When NOT to Use
+### Key Difference from Server Actions
 
-- Functions with user-specific data that changes frequently
-- Real-time data requirements
-- Functions with side effects (use for reads, not writes)
+- **'use cache' in Components** - Cache rendered output (UI)
+- **Server Actions** - Always run on server, use `updateTag()` to invalidate
 
 </details>
 
@@ -1515,9 +1520,39 @@ Each component should have **one reason to change**.
 
 ---
 
-### 🎯 STEP 6 — Create Task Pages with Cache
+### 🎯 STEP 6 — Configure Next.js for Cache Components
 
-Create task pages using Next.js 16 Server Components with `use cache`.
+Before creating pages with Cache Components, ensure your `next.config.js` has the required experimental flag enabled.
+
+**Note:** If you completed Lesson 4, this configuration should already be in place. This step verifies the setup.
+
+**Update or verify `next.config.js`:**
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    cacheComponents: true
+  }
+}
+
+module.exports = nextConfig
+```
+
+This enables Next.js 16's Cache Components feature, allowing you to use `'use cache'` directives for component-level caching with fine-grained revalidation using `updateTag()`.
+
+**Verify the configuration:**
+
+```bash
+# Check that next.config.js exists and has the experimental flag
+cat next.config.js | grep -A 2 "experimental"
+```
+
+---
+
+### 🎯 STEP 7 — Create Task Pages with Cache Components
+
+Create task pages using Next.js 16 Server Components with separate cached async components and Suspense boundaries.
 
 **Create tasks list page:**
 
@@ -1529,33 +1564,78 @@ cat > 'src/app/dashboard/projects/[id]/tasks/page.tsx' << 'EOF'
 // TASKS LIST PAGE (Server Component with Cache)
 // ============================================
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { getTasksByProject, getTaskStats } from '@/lib/actions/tasks';
 import { TaskList } from '@/components/features/tasks/TaskList';
 import { TaskStats } from '@/components/features/tasks/TaskStats';
 import { Button } from '@/components/ui/Button';
 import { ROUTES, UI_LABELS } from '@/lib/constants';
+import { cacheLife, cacheTag } from 'next/cache';
 
 interface TasksPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function TasksPage({ params }: TasksPageProps) {
-  const { id: projectId } = await params;
+// Cached async component for task statistics
+async function TaskStatsSection({ projectId }: { projectId: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('task-stats')
+  cacheTag(`task-stats-${projectId}`)
 
-  // Fetch tasks and stats (both use 'use cache' in Server Actions)
-  const [tasksResult, statsResult] = await Promise.all([
-    getTasksByProject(projectId),
-    getTaskStats(projectId),
-  ]);
+  const statsResult = await getTaskStats(projectId);
 
-  if (!tasksResult.success || !statsResult.success) {
+  if (!statsResult.success || !statsResult.data) {
+    return null;
+  }
+
+  return <TaskStats stats={statsResult.data} />;
+}
+
+// Cached async component for tasks list
+async function TasksListSection({ projectId }: { projectId: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('tasks')
+  cacheTag(`tasks-${projectId}`)
+
+  const tasksResult = await getTasksByProject(projectId);
+
+  if (!tasksResult.success) {
     return (
-      <div className="p-6">
-        <p className="text-red-600">{tasksResult.error || statsResult.error}</p>
+      <div className="text-center py-12">
+        <p className="text-red-600">{tasksResult.error}</p>
       </div>
     );
   }
+
+  return <TaskList tasks={tasksResult.data || []} projectId={projectId} />;
+}
+
+// Skeleton loaders
+function TaskStatsSkeleton() {
+  return (
+    <div className="animate-pulse">
+      <div className="h-48 bg-gray-200 rounded-lg"></div>
+    </div>
+  );
+}
+
+function TasksListSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="animate-pulse">
+          <div className="h-40 bg-gray-200 rounded-lg"></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default async function TasksPage({ params }: TasksPageProps) {
+  const { id: projectId } = await params;
 
   return (
     <div className="p-6 space-y-6">
@@ -1574,11 +1654,15 @@ export default async function TasksPage({ params }: TasksPageProps) {
         </div>
       </div>
 
-      {/* Task Statistics */}
-      {statsResult.data && <TaskStats stats={statsResult.data} />}
+      {/* Task Statistics with Suspense */}
+      <Suspense fallback={<TaskStatsSkeleton />}>
+        <TaskStatsSection projectId={projectId} />
+      </Suspense>
 
-      {/* Task List */}
-      <TaskList tasks={tasksResult.data || []} projectId={projectId} />
+      {/* Task List with Suspense */}
+      <Suspense fallback={<TasksListSkeleton />}>
+        <TasksListSection projectId={projectId} />
+      </Suspense>
     </div>
   );
 }
@@ -1630,8 +1714,9 @@ cat > 'src/app/dashboard/projects/[id]/tasks/[taskId]/page.tsx' << 'EOF'
 // VIEW TASK PAGE (Server Component with Cache)
 // ============================================
 
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { getTask, deleteTask } from '@/lib/actions/tasks';
+import { getTask } from '@/lib/actions/tasks';
 import { Button } from '@/components/ui/Button';
 import {
   TASK_STATUS_LABELS,
@@ -1642,13 +1727,18 @@ import {
   UI_LABELS,
   ERROR_MESSAGES,
 } from '@/lib/constants';
+import { cacheLife, cacheTag } from 'next/cache';
 
 interface ViewTaskPageProps {
   params: Promise<{ id: string; taskId: string }>;
 }
 
-export default async function ViewTaskPage({ params }: ViewTaskPageProps) {
-  const { id: projectId, taskId } = await params;
+// Cached async component for task details
+async function TaskDetails({ taskId, projectId }: { taskId: string; projectId: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('tasks')
+  cacheTag(`task-${taskId}`)
 
   const result = await getTask(taskId);
 
@@ -1720,6 +1810,26 @@ export default async function ViewTaskPage({ params }: ViewTaskPageProps) {
     </div>
   );
 }
+
+// Skeleton loader
+function TaskDetailsSkeleton() {
+  return (
+    <div className="max-w-3xl mx-auto p-6 space-y-6 animate-pulse">
+      <div className="h-10 bg-gray-200 rounded w-1/3"></div>
+      <div className="h-64 bg-gray-200 rounded"></div>
+    </div>
+  );
+}
+
+export default async function ViewTaskPage({ params }: ViewTaskPageProps) {
+  const { id: projectId, taskId } = await params;
+
+  return (
+    <Suspense fallback={<TaskDetailsSkeleton />}>
+      <TaskDetails taskId={taskId} projectId={projectId} />
+    </Suspense>
+  );
+}
 EOF
 
 # Verify
@@ -1736,16 +1846,22 @@ cat > 'src/app/dashboard/projects/[id]/tasks/[taskId]/edit/page.tsx' << 'EOF'
 // EDIT TASK PAGE
 // ============================================
 
+import { Suspense } from 'react';
 import { getTask } from '@/lib/actions/tasks';
 import { TaskForm } from '@/components/features/tasks/TaskForm';
 import { ERROR_MESSAGES } from '@/lib/constants';
+import { cacheLife, cacheTag } from 'next/cache';
 
 interface EditTaskPageProps {
   params: Promise<{ id: string; taskId: string }>;
 }
 
-export default async function EditTaskPage({ params }: EditTaskPageProps) {
-  const { id: projectId, taskId } = await params;
+// Cached async component for task form data
+async function TaskFormSection({ taskId, projectId }: { taskId: string; projectId: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('tasks')
+  cacheTag(`task-${taskId}`)
 
   const result = await getTask(taskId);
 
@@ -1764,6 +1880,26 @@ export default async function EditTaskPage({ params }: EditTaskPageProps) {
     </div>
   );
 }
+
+// Skeleton loader
+function TaskFormSkeleton() {
+  return (
+    <div className="max-w-2xl mx-auto p-6 space-y-6 animate-pulse">
+      <div className="h-10 bg-gray-200 rounded w-1/3"></div>
+      <div className="h-96 bg-gray-200 rounded"></div>
+    </div>
+  );
+}
+
+export default async function EditTaskPage({ params }: EditTaskPageProps) {
+  const { id: projectId, taskId } = await params;
+
+  return (
+    <Suspense fallback={<TaskFormSkeleton />}>
+      <TaskFormSection taskId={taskId} projectId={projectId} />
+    </Suspense>
+  );
+}
 EOF
 
 # Verify
@@ -1778,7 +1914,7 @@ npx tsc --noEmit 'src/app/dashboard/projects/[id]/tasks/**/*.tsx'
 
 ---
 
-### 🎯 STEP 7 — (OPTIONAL) Demo React 19.2 useEffectEvent
+### 🎯 STEP 8 — (OPTIONAL) Demo React 19.2 useEffectEvent
 
 Create a demo hook using React 19.2's `useEffectEvent` to avoid stale closures.
 
@@ -1903,6 +2039,140 @@ function GoodTimer({ taskCount }) {
 
 ---
 
+### 🎯 STEP 9 — Understanding Cache Components for Tasks
+
+Next.js 16's Cache Components feature provides fine-grained control over caching with component-level granularity and tag-based revalidation. This step explains the caching strategy used in the task management system.
+
+#### What We're Caching
+
+**Task Statistics** (`'use cache'` with `cacheLife('hours')`):
+- Task statistics are computed from aggregated data (RPC function)
+- Don't change frequently (only when tasks are created/updated/deleted)
+- Cache for 1 hour to reduce database load
+- Tagged with `'task-stats'` and `'task-stats-{projectId}'` for selective revalidation
+
+**Tasks List** (`'use cache'` with `cacheLife('hours')`):
+- Task listings cached per project
+- Revalidated when tasks are created/updated/deleted
+- Uses multiple tags: `'tasks'` and `'tasks-{projectId}'`
+- Ensures fast page loads while staying fresh
+
+**Individual Tasks** (`'use cache'` with task-specific tag):
+- Each task cached independently
+- Uses tags: `'tasks'` and `'task-{taskId}'`
+- Allows selective revalidation of specific tasks
+- Edit form data also cached for instant load
+
+#### Cache Revalidation Strategy
+
+**When creating a task:**
+```typescript
+updateTag('tasks')                    // Revalidate all task-related caches
+updateTag(`tasks-${projectId}`)       // Revalidate this project's tasks
+updateTag('task-stats')               // Revalidate global task stats
+updateTag(`task-stats-${projectId}`)  // Revalidate this project's stats
+```
+
+**When updating a task:**
+```typescript
+updateTag('tasks')                    // Revalidate all task-related caches
+updateTag(`task-${taskId}`)           // Revalidate specific task
+updateTag(`tasks-${projectId}`)       // Revalidate project's task list
+updateTag('task-stats')               // Revalidate stats
+updateTag(`task-stats-${projectId}`)  // Revalidate project stats
+```
+
+**When deleting a task:**
+```typescript
+updateTag('tasks')                    // Revalidate all task-related caches
+updateTag(`tasks-${projectId}`)       // Revalidate project's task list
+updateTag('task-stats')               // Revalidate stats
+updateTag(`task-stats-${projectId}`)  // Revalidate project stats
+```
+
+#### Benefits of Cache Components
+
+✅ **Performance**: Cached responses served instantly from the edge
+✅ **Reduced Load**: Fewer database queries means lower costs
+✅ **User Experience**: Instant navigation with Partial Prerendering (PPR)
+✅ **Selective Updates**: Only revalidate what changed, not entire routes
+✅ **Read Your Own Writes**: `updateTag` ensures users see their changes immediately
+✅ **Granular Control**: Different cache durations per component
+
+#### How Cache Components Work with Tasks
+
+1. **Cache Directive**: `'use cache'` marks an async component for caching
+2. **Cache Duration**: `cacheLife('hours')` sets how long to cache (seconds, minutes, hours, days)
+3. **Cache Tags**: `cacheTag('tag-name')` allows selective revalidation
+4. **Tag Updates**: `updateTag('tag-name')` invalidates specific caches in Server Actions
+5. **Suspense Boundaries**: Skeleton loaders provide instant feedback while loading
+
+**Example from Task List Page:**
+```typescript
+// Cached async component
+async function TasksListSection({ projectId }: { projectId: string }) {
+  'use cache'                      // Enable caching for this component
+  cacheLife('hours')              // Cache for 1 hour
+  cacheTag('tasks')               // Tag for all tasks
+  cacheTag(`tasks-${projectId}`)  // Tag for this project's tasks
+
+  const tasksResult = await getTasksByProject(projectId)
+  return <TaskList tasks={tasksResult.data || []} projectId={projectId} />
+}
+
+// In the page component
+export default async function TasksPage({ params }) {
+  const { id: projectId } = await params
+
+  return (
+    <Suspense fallback={<TasksListSkeleton />}>
+      <TasksListSection projectId={projectId} />
+    </Suspense>
+  )
+}
+
+// Later, when a task is created in a Server Action:
+updateTag('tasks')                // Invalidate all task caches
+updateTag(`tasks-${projectId}`)   // Invalidate this project's tasks
+```
+
+#### Comparison with Previous Approach
+
+**Before (revalidatePath):**
+- Invalidates entire route
+- All components on the page refetch
+- More database queries
+- Slower after mutations
+- Coarse-grained control
+
+**After (updateTag):**
+- Invalidates only tagged components
+- Only affected components refetch
+- Fewer database queries
+- Faster, more surgical updates
+- Fine-grained control with multiple tags
+
+#### Cache Tags Strategy for Tasks
+
+The task management system uses a hierarchical tagging strategy:
+
+- `'tasks'` - All task-related caches (global)
+- `'tasks-{projectId}'` - Tasks for a specific project
+- `'task-{taskId}'` - A specific task
+- `'task-stats'` - All task statistics (global)
+- `'task-stats-{projectId}'` - Statistics for a specific project
+
+This allows you to invalidate:
+- All tasks across all projects: `updateTag('tasks')`
+- All tasks in one project: `updateTag('tasks-{projectId}')`
+- One specific task: `updateTag('task-{taskId}')`
+- All statistics: `updateTag('task-stats')`
+- Statistics for one project: `updateTag('task-stats-{projectId}')`
+
+For more details on Cache Components and PPR, see `NEXTJS16-CACHE-REFERENCE.md` in the project root.
+
+---
+
 ## ✅ 3. VERIFY
 
 ### Verification Checklist
@@ -1931,8 +2201,8 @@ function GoodTimer({ taskCount }) {
 
 **🎯 Step 4: Server Actions**
 - [ ] `src/lib/actions/tasks.ts` created
-- [ ] `use cache` directive on read functions
-- [ ] `revalidateTag()` called after mutations
+- [ ] Server Actions do NOT have `'use cache'` (only in components)
+- [ ] `updateTag()` called after mutations (not `revalidateTag()`)
 - [ ] All error messages use constants
 - [ ] TypeScript compiles without errors
 
@@ -1944,18 +2214,30 @@ function GoodTimer({ taskCount }) {
 - [ ] All components use constants for labels, routes, colors
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 6: Pages**
+**🎯 Step 6: Configure Next.js**
+- [ ] `next.config.js` has `experimental: { cacheComponents: true }`
+- [ ] Configuration verified with grep command
+
+**🎯 Step 7: Pages with Cache Components**
 - [ ] Tasks list page created at `[id]/tasks/page.tsx`
+- [ ] Separate cached async components: `TaskStatsSection`, `TasksListSection`
+- [ ] Each cached component has `'use cache'`, `cacheLife()`, `cacheTag()`
+- [ ] Suspense boundaries with skeleton loaders
 - [ ] New task page created at `[id]/tasks/new/page.tsx`
-- [ ] View task page created at `[id]/tasks/[taskId]/page.tsx`
-- [ ] Edit task page created at `[id]/tasks/[taskId]/edit/page.tsx`
-- [ ] All pages use Server Components
+- [ ] View task page created with cached `TaskDetails` component
+- [ ] Edit task page created with cached `TaskFormSection` component
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 7: React 19.2 Demo (Optional)**
-- [ ] `src/hooks/useTaskTimer.ts` created
+**🎯 Step 8: React 19.2 Demo (Optional)**
+- [ ] `src/hooks/useTaskTimer.ts` created (if implementing)
 - [ ] Uses `useEffectEvent` hook
 - [ ] TypeScript compiles without errors
+
+**🎯 Step 9: Understanding Cache Components**
+- [ ] Read and understand the caching strategy section
+- [ ] Understand tag hierarchy and revalidation patterns
+- [ ] Understand difference between `'use cache'` and Server Actions
+
 
 ### Manual Testing
 
@@ -2008,10 +2290,16 @@ grep -r '"todo"' src/ --exclude="constants.ts"
 grep -r "from '@/lib/constants'" src/
 ```
 
-**Cache directive used:**
+**Cache Components pattern used:**
 ```bash
-# Should see 'use cache' in Server Actions
-grep -r "use cache" src/lib/actions/
+# Should see 'use cache' in page components (NOT Server Actions)
+grep -r "use cache" src/app/
+
+# Should see updateTag in Server Actions (NOT revalidateTag)
+grep -r "updateTag" src/lib/actions/
+
+# Should see cacheLife and cacheTag in components
+grep -r "cacheLife\|cacheTag" src/app/
 ```
 
 ### Performance Testing
@@ -2037,10 +2325,12 @@ grep -r "use cache" src/lib/actions/
 - Change once, update everywhere
 
 ✅ **Next.js 16 Cache Components**
-- `use cache` directive for async functions
-- Automatic caching of Server Component results
-- `revalidateTag()` for cache invalidation
-- Dramatic performance improvement for read-heavy operations
+- `'use cache'` directive in async component functions (NOT Server Actions)
+- `cacheLife()` to set cache duration (seconds, minutes, hours, days)
+- `cacheTag()` to tag caches for selective invalidation
+- `updateTag()` in Server Actions to invalidate specific caches
+- Suspense boundaries with skeleton loaders for instant feedback
+- Dramatic performance improvement with surgical cache updates
 
 ✅ **React 19.2 useEffectEvent**
 - Avoid stale closures in effects
@@ -2084,20 +2374,21 @@ src/
 │       └── TaskStats.tsx     ← Statistics dashboard
 └── app/
     └── dashboard/projects/[id]/tasks/
-        ├── page.tsx          ← List (Server Component with cache)
+        ├── page.tsx          ← List (Cached components with Suspense)
         ├── new/page.tsx      ← Create
         └── [taskId]/
-            ├── page.tsx      ← View (Server Component with cache)
-            └── edit/page.tsx ← Edit
+            ├── page.tsx      ← View (Cached component with Suspense)
+            └── edit/page.tsx ← Edit (Cached component with Suspense)
 ```
 
 ### Next Steps
 
 With Lesson 5 complete, you now have:
 - ✅ Production-grade best practices (constants, SOLID, DRY)
-- ✅ Next.js 16 cache components for performance
+- ✅ Next.js 16 Cache Components with tag-based revalidation
+- ✅ Suspense boundaries with skeleton loaders for instant UX
 - ✅ React 19.2 features (useEffectEvent)
-- ✅ Full task management system
+- ✅ Full task management system with optimized caching
 - ✅ RPC functions for complex queries
 - ✅ Zero magic strings or numbers
 

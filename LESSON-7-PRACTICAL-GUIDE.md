@@ -26,11 +26,59 @@ In this lesson, you'll implement **real-time collaboration features** that allow
 - **Broadcast Channels** - Custom event broadcasting between clients
 - **Presence** - Track online users and their state
 - **React 19.2** - `useEffectEvent` for stable subscription callbacks
-- **Next.js 16** - Client Components for real-time features
+- **Next.js 16** - Cache Components for initial data + Client Components for real-time updates
 
 ---
 
 ## Architecture Overview
+
+### Hybrid Caching Strategy: Cache Components + Real-time Updates
+
+This lesson demonstrates a powerful pattern combining **Next.js 16 Cache Components** with **Supabase Realtime**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Initial Page Load                       │
+├─────────────────────────────────────────────────────────────┤
+│  1. Server Component fetches data (with Cache Components)   │
+│     'use cache'                                             │
+│     cacheLife('seconds')  ← Very short cache for real-time  │
+│     cacheTag('tasks')                                       │
+│                                                             │
+│  2. Cached data passed as initialTasks to Client Component  │
+│     <TaskListRealtime initialTasks={cachedTasks} />        │
+│                                                             │
+│  3. Client Component subscribes to real-time updates        │
+│     WebSocket connection established                        │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                  Real-time Updates Flow                     │
+├─────────────────────────────────────────────────────────────┤
+│  User A creates task → Server Action                        │
+│    ↓                                                        │
+│  1. Task saved to database                                  │
+│  2. updateTag(['tasks', 'tasks-projectId']) ← Invalidate    │
+│  3. Supabase Realtime broadcasts change                     │
+│    ↓                                                        │
+│  User B's browser receives WebSocket event                  │
+│    ↓                                                        │
+│  Client Component updates UI instantly                      │
+│    ↓                                                        │
+│  Next page load gets fresh data (cache invalidated)         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Benefits:**
+- ✅ **Fast Initial Load** - Cached data from Server Components
+- ✅ **Instant Updates** - Real-time subscriptions for live changes
+- ✅ **Optimal Performance** - Short cache + WebSocket = best of both worlds
+- ✅ **Reduced Load** - Cache prevents unnecessary database queries
+- ✅ **Fresh Data** - Cache invalidation ensures consistency
+
+---
+
+## Architecture Overview (Continued)
 
 ### Supabase Realtime Features
 
@@ -111,7 +159,58 @@ Realtime respects Row Level Security (RLS) policies. Users only receive events f
 
 ---
 
-## Step 2: Extend Constants (Lesson 1 Pattern)
+## Step 2: Configure Next.js 16 Cache Components (IMPORTANT)
+
+### 2.1 Update next.config.js
+
+Enable Cache Components with granular cache control:
+
+```bash
+cat > next.config.js << 'EOF'
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    // Enable Cache Components (Next.js 16 feature)
+    cacheComponents: true,
+
+    // Enable dynamic IO (required for Cache Components)
+    dynamicIO: true,
+  },
+};
+
+export default nextConfig;
+EOF
+```
+
+**Why These Settings:**
+- `cacheComponents: true` - Enables the `'use cache'` directive
+- `dynamicIO: true` - Required for Cache Components to work with async operations
+
+### 2.2 Understanding Cache Strategy for Real-time Features
+
+For real-time features, we use **very short cache durations**:
+
+```typescript
+'use cache'
+cacheLife('seconds')  // 5-10 seconds max for real-time data
+cacheTag('tasks')
+cacheTag('tasks-projectId')
+```
+
+**Why Short Cache?**
+- ✅ Still benefits from caching (reduces DB load)
+- ✅ Doesn't conflict with real-time updates
+- ✅ Fresh data on page refresh
+- ✅ Cache invalidation works quickly
+
+**Cache Duration Guidelines:**
+- Real-time data (tasks, messages): `cacheLife('seconds')` (5-10s)
+- Semi-static data (project info): `cacheLife('minutes')` (5-10m)
+- Static data (user profiles): `cacheLife('hours')` or `cacheLife('days')`
+
+---
+
+## Step 3: Extend Constants (Lesson 1 Pattern)
 
 Following the **DRY principle** from Lesson 1, add real-time constants to `src/constants/index.ts`:
 
@@ -257,7 +356,76 @@ EOF
 
 ---
 
-## Step 4: Create useRealtimeSubscription Hook
+## Step 4: Create Cached Data Fetchers
+
+Before creating the UI components, let's create Server Component functions that fetch and cache initial data:
+
+```bash
+cat > src/lib/data/tasks-cached.ts << 'EOF'
+import 'server-only';
+import { cacheLife, cacheTag } from 'next/cache';
+import { getTasks } from '@/lib/actions/tasks';
+import type { Database } from '@/lib/types/database';
+
+type Task = Database['public']['Tables']['prj_tasks']['Row'];
+
+/**
+ * Cached function to fetch tasks with very short cache duration
+ * Perfect for real-time features where data changes frequently
+ *
+ * Cache Strategy:
+ * - cacheLife('seconds') = 5-10 second cache
+ * - Very short to avoid stale data
+ * - Still provides performance benefit
+ * - Cache invalidated on mutations via updateTag()
+ */
+export async function getTasksCached(projectId: string): Promise<Task[]> {
+  'use cache';
+  cacheLife('seconds'); // 5-10 seconds for real-time data
+  cacheTag('tasks');
+  cacheTag(`tasks-${projectId}`);
+
+  const result = await getTasks({ projectId });
+
+  if (!result.success || !result.data) {
+    return [];
+  }
+
+  return result.data;
+}
+
+/**
+ * Get all tasks (without project filter)
+ * Used for dashboard overview
+ */
+export async function getAllTasksCached(): Promise<Task[]> {
+  'use cache';
+  cacheLife('seconds');
+  cacheTag('tasks');
+  cacheTag('all-tasks');
+
+  const result = await getTasks({});
+
+  if (!result.success || !result.data) {
+    return [];
+  }
+
+  return result.data;
+}
+
+EOF
+```
+
+**Key Features:**
+- ✅ **Server-only** - Uses `'server-only'` to prevent client-side usage
+- ✅ **Very short cache** - `cacheLife('seconds')` for frequently changing data
+- ✅ **Granular tags** - Both generic and specific tags for fine-grained invalidation
+- ✅ **Type-safe** - Full TypeScript typing
+- ✅ **Error handling** - Returns empty array on error
+
+---
+
+## Step 5: Create useRealtimeSubscription Hook
 
 Create a base hook for managing Supabase Realtime subscriptions:
 
@@ -355,7 +523,7 @@ EOF
 
 ---
 
-## Step 5: Create useTaskSubscription Hook
+## Step 6: Create useTaskSubscription Hook
 
 Create a hook specifically for subscribing to task changes:
 
@@ -484,7 +652,7 @@ EOF
 
 ---
 
-## Step 6: Create usePresence Hook
+## Step 7: Create usePresence Hook
 
 Create a hook for tracking online users:
 
@@ -584,7 +752,7 @@ EOF
 
 ---
 
-## Step 7: Create useBroadcast Hook
+## Step 8: Create useBroadcast Hook
 
 Create a hook for sending/receiving custom events:
 
@@ -692,7 +860,7 @@ EOF
 
 ---
 
-## Step 8: Create Connection Status Component
+## Step 9: Create Connection Status Component
 
 Create a component to show connection status:
 
@@ -758,7 +926,7 @@ EOF
 
 ---
 
-## Step 9: Create Online Users Component
+## Step 10: Create Online Users Component
 
 Create a component to display online users:
 
@@ -837,17 +1005,16 @@ EOF
 
 ---
 
-## Step 10: Create Real-time Task List Component
+## Step 11: Create Real-time Task List Component with Cache Integration
 
-Update the task list to use real-time subscriptions:
+Update the task list to use real-time subscriptions with cached initial data:
 
 ```bash
 cat > src/components/features/tasks/TaskListRealtime.tsx << 'EOF'
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTaskSubscription } from '@/hooks/realtime/useTaskSubscription';
-import { getTasks } from '@/lib/actions/tasks';
 import { ConnectionStatus } from '@/components/features/realtime/ConnectionStatus';
 import { TaskCard } from './TaskCard';
 import type { Database } from '@/lib/types/database';
@@ -856,14 +1023,25 @@ type Task = Database['public']['Tables']['prj_tasks']['Row'];
 
 type TaskListRealtimeProps = {
   projectId: string;
-  initialTasks: Task[];
+  initialTasks: Task[]; // Comes from cached Server Component
 };
 
 /**
  * Task list with real-time updates
- * Shows live task changes from other team members
+ *
+ * Hybrid Architecture:
+ * 1. Receives cached initial data from Server Component
+ * 2. Subscribes to real-time WebSocket updates
+ * 3. Updates UI instantly when changes occur
+ *
+ * Why This Works:
+ * - Server Component caches data with cacheLife('seconds')
+ * - Client Component keeps UI in sync via WebSocket
+ * - Cache invalidation (updateTag) ensures fresh data on next load
+ * - Best of both worlds: fast initial load + live updates
  */
 export function TaskListRealtime({ projectId, initialTasks }: TaskListRealtimeProps) {
+  // Initialize with cached data from server
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -891,17 +1069,6 @@ export function TaskListRealtime({ projectId, initialTasks }: TaskListRealtimePr
     setNotification(message);
     setTimeout(() => setNotification(null), 3000);
   };
-
-  // Refresh tasks from server on mount
-  useEffect(() => {
-    const refreshTasks = async () => {
-      const result = await getTasks({ projectId });
-      if (result.success && result.data) {
-        setTasks(result.data);
-      }
-    };
-    refreshTasks();
-  }, [projectId]);
 
   return (
     <div className="space-y-4">
@@ -936,24 +1103,32 @@ EOF
 ```
 
 **Key Features:**
-- ✅ Real-time task updates (create, update, delete)
-- ✅ Connection status indicator
-- ✅ Toast notifications for changes
-- ✅ Optimistic UI updates
-- ✅ Server data refresh on mount
+- ✅ **Cached Initial Data** - Receives pre-cached data from Server Component
+- ✅ **Real-time Updates** - WebSocket subscription for live changes
+- ✅ **Connection Status** - Visual indicator of WebSocket connection
+- ✅ **Toast Notifications** - User feedback for changes
+- ✅ **Optimistic UI** - Updates instantly on real-time events
+- ✅ **No Redundant Fetching** - Removed `useEffect` fetch (relies on cache + realtime)
+
+**Why No useEffect Fetch:**
+- Server Component provides fresh cached data on every page load
+- Real-time subscription keeps data in sync after initial load
+- Cache invalidation ensures next page load has fresh data
+- Eliminates double-fetching problem
 
 ---
 
-## Step 11: Create Real-time Project Page
+## Step 12: Create Real-time Project Page with Cache Components
 
-Update the project tasks page to use real-time components:
+Update the project tasks page to use Cache Components with Suspense and real-time features:
 
 ```bash
 cat > src/app/dashboard/projects/[id]/tasks/page-realtime.tsx << 'EOF'
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { getTasks } from '@/lib/actions/tasks';
 import { getProject } from '@/lib/actions/projects';
+import { getTasksCached } from '@/lib/data/tasks-cached';
 import { TaskListRealtime } from '@/components/features/tasks/TaskListRealtime';
 import { OnlineUsers } from '@/components/features/realtime/OnlineUsers';
 import { ROUTES } from '@/constants';
@@ -964,8 +1139,43 @@ type ProjectTasksPageProps = {
 };
 
 /**
+ * Server Component that provides cached initial data
+ * Uses Cache Components for performance with real-time updates
+ */
+async function TasksWithCache({ projectId }: { projectId: string }) {
+  // Fetch cached tasks (cacheLife('seconds') for real-time data)
+  const initialTasks = await getTasksCached(projectId);
+
+  return <TaskListRealtime projectId={projectId} initialTasks={initialTasks} />;
+}
+
+/**
+ * Loading fallback for Suspense boundary
+ */
+function TasksLoading() {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Tasks</h2>
+        <div className="text-sm text-gray-500">Loading...</div>
+      </div>
+      <div className="grid gap-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-gray-100 h-24 rounded-md animate-pulse" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Project tasks page with real-time updates
- * Server Component that fetches initial data, then Client Component handles real-time
+ *
+ * Architecture:
+ * 1. Server Component (this page) - Auth check, fetch project info
+ * 2. Suspense boundary - Streaming for async data
+ * 3. TasksWithCache - Cached data fetcher using Cache Components
+ * 4. TaskListRealtime - Client Component with WebSocket subscription
  */
 export default async function ProjectTasksPage({ params }: ProjectTasksPageProps) {
   const { id: projectId } = await params;
@@ -975,18 +1185,14 @@ export default async function ProjectTasksPage({ params }: ProjectTasksPageProps
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(ROUTES.LOGIN);
 
-  // Fetch initial data
-  const [projectResult, tasksResult] = await Promise.all([
-    getProject(projectId),
-    getTasks({ projectId }),
-  ]);
+  // Fetch project info (can also be cached with longer duration)
+  const projectResult = await getProject(projectId);
 
   if (!projectResult.success || !projectResult.data) {
     redirect(ROUTES.DASHBOARD_PROJECTS);
   }
 
   const project = projectResult.data;
-  const initialTasks = tasksResult.success ? tasksResult.data || [] : [];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -1013,8 +1219,10 @@ export default async function ProjectTasksPage({ params }: ProjectTasksPageProps
         metadata={{ projectId }}
       />
 
-      {/* Real-time Task List */}
-      <TaskListRealtime projectId={projectId} initialTasks={initialTasks} />
+      {/* Real-time Task List with Suspense */}
+      <Suspense fallback={<TasksLoading />}>
+        <TasksWithCache projectId={projectId} />
+      </Suspense>
     </div>
   );
 }
@@ -1022,31 +1230,198 @@ export default async function ProjectTasksPage({ params }: ProjectTasksPageProps
 EOF
 ```
 
-**Architecture:**
-- ✅ **Server Component** - Fetches initial data with auth check
-- ✅ **Client Component** - Handles real-time subscriptions (TaskListRealtime)
-- ✅ **Presence Tracking** - Shows online users viewing this project
-- ✅ **Optimistic UI** - Instant updates before server confirmation
+**Architecture Breakdown:**
+
+1. **Server Component** (`ProjectTasksPage`)
+   - Handles authentication
+   - Fetches project metadata
+   - Renders layout and header
+   - Wraps async content in Suspense
+
+2. **Suspense Boundary**
+   - Enables streaming for async Server Components
+   - Shows loading state while cache resolves
+   - Improves perceived performance
+
+3. **Cached Data Fetcher** (`TasksWithCache`)
+   - Uses `getTasksCached()` with `'use cache'`
+   - Very short cache duration (`cacheLife('seconds')`)
+   - Tagged for granular invalidation
+   - Streams data to client
+
+4. **Client Component** (`TaskListRealtime`)
+   - Receives cached initial data as props
+   - Establishes WebSocket connection
+   - Handles real-time updates
+   - Updates UI instantly
+
+**Benefits:**
+- ✅ **Fast Initial Load** - Cached data served instantly
+- ✅ **Progressive Enhancement** - Suspense provides smooth loading
+- ✅ **Live Updates** - Real-time after initial load
+- ✅ **Reduced Load** - Cache prevents redundant DB queries
+- ✅ **Fresh Data** - Short cache + invalidation ensures consistency
 
 ---
 
-## Step 12: Add Realtime to Main Tasks Page
+## Step 13: Update Server Actions for Cache Invalidation
 
-To use the real-time version, update your existing tasks page:
+Replace `revalidatePath` with `updateTag` in your Server Actions to work with Cache Components:
+
+```bash
+cat > src/lib/actions/tasks-with-cache-invalidation.ts << 'EOF'
+'use server';
+
+import { updateTag } from 'next/cache';
+import { createClient } from '@/lib/supabase/server';
+import { DB_TABLES } from '@/constants';
+import type { Database } from '@/lib/types/database';
+
+type TaskInput = Omit<
+  Database['public']['Tables']['prj_tasks']['Insert'],
+  'id' | 'created_at' | 'updated_at'
+>;
+
+/**
+ * Create task with cache invalidation
+ *
+ * Cache Invalidation Strategy:
+ * 1. Task is saved to database
+ * 2. updateTag() invalidates relevant caches
+ * 3. Supabase Realtime broadcasts change to connected clients
+ * 4. Next page load gets fresh data (cache was invalidated)
+ */
+export async function createTaskWithCache(input: TaskInput) {
+  try {
+    const supabase = await createClient();
+
+    // Insert task
+    const { data, error } = await supabase
+      .from(DB_TABLES.TASKS)
+      .insert(input)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Invalidate caches (replaces revalidatePath)
+    updateTag('tasks'); // Invalidate all tasks cache
+    updateTag(`tasks-${input.project_id}`); // Invalidate project-specific cache
+    updateTag('all-tasks'); // Invalidate dashboard cache
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error creating task:', error);
+    return { success: false, error: 'Failed to create task' };
+  }
+}
+
+/**
+ * Update task with cache invalidation
+ */
+export async function updateTaskWithCache(
+  taskId: string,
+  updates: Partial<TaskInput>
+) {
+  try {
+    const supabase = await createClient();
+
+    // Get current task to find project_id for cache invalidation
+    const { data: currentTask } = await supabase
+      .from(DB_TABLES.TASKS)
+      .select('project_id')
+      .eq('id', taskId)
+      .single();
+
+    // Update task
+    const { data, error } = await supabase
+      .from(DB_TABLES.TASKS)
+      .update(updates)
+      .eq('id', taskId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Invalidate caches
+    updateTag('tasks');
+    if (currentTask?.project_id) {
+      updateTag(`tasks-${currentTask.project_id}`);
+    }
+    updateTag('all-tasks');
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error updating task:', error);
+    return { success: false, error: 'Failed to update task' };
+  }
+}
+
+/**
+ * Delete task with cache invalidation
+ */
+export async function deleteTaskWithCache(taskId: string, projectId: string) {
+  try {
+    const supabase = await createClient();
+
+    const { error } = await supabase
+      .from(DB_TABLES.TASKS)
+      .delete()
+      .eq('id', taskId);
+
+    if (error) throw error;
+
+    // Invalidate caches
+    updateTag('tasks');
+    updateTag(`tasks-${projectId}`);
+    updateTag('all-tasks');
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    return { success: false, error: 'Failed to delete task' };
+  }
+}
+
+EOF
+```
+
+**Key Changes:**
+- ✅ **`updateTag()` instead of `revalidatePath()`** - Works with Cache Components
+- ✅ **Granular invalidation** - Multiple tags for fine-grained control
+- ✅ **Generic + Specific tags** - Both `'tasks'` and `'tasks-projectId'`
+- ✅ **Works with Real-time** - Cache invalidation + WebSocket = complete sync
+
+**Flow:**
+1. User A creates task → Server Action called
+2. Task saved to DB
+3. `updateTag(['tasks', 'tasks-123'])` invalidates caches
+4. Supabase Realtime broadcasts INSERT event
+5. User B's WebSocket receives event → UI updates instantly
+6. User B refreshes page → Gets fresh data (cache was invalidated)
+
+---
+
+## Step 14: Add Realtime to Main Tasks Page
+
+To use the real-time version with Cache Components, update your existing tasks page:
 
 ```bash
 # Backup original page
 cp src/app/dashboard/projects/[id]/tasks/page.tsx src/app/dashboard/projects/[id]/tasks/page.backup.tsx
 
-# Replace with real-time version
+# Replace with real-time + cache version
 cp src/app/dashboard/projects/[id]/tasks/page-realtime.tsx src/app/dashboard/projects/[id]/tasks/page.tsx
 ```
 
-Or manually update `src/app/dashboard/projects/[id]/tasks/page.tsx` to import and use `TaskListRealtime` instead of static `TaskList`.
+Or manually update `src/app/dashboard/projects/[id]/tasks/page.tsx` to:
+1. Import `getTasksCached` instead of `getTasks`
+2. Wrap TaskListRealtime in Suspense
+3. Use TasksWithCache pattern shown in Step 12
 
 ---
 
-## Step 13: Add Typing Indicator Example
+## Step 15: Add Typing Indicator Example
 
 Create a component showing typing indicators using broadcast:
 
@@ -1159,7 +1534,7 @@ const { sendTyping } = useTypingIndicator('project:123', user.id, user.name);
 
 ---
 
-## Step 14: Add CSS Animations
+## Step 16: Add CSS Animations
 
 Add CSS for fade-in animation:
 
@@ -1187,7 +1562,7 @@ EOF
 
 ---
 
-## Step 15: Export Realtime Hooks
+## Step 17: Export Realtime Hooks
 
 Create an index file to export all realtime hooks:
 
@@ -1205,7 +1580,52 @@ EOF
 
 ## Verification Steps
 
-### 1. Test Real-time Task Updates
+### 1. Verify Cache Components Configuration
+
+**Check next.config.js:**
+
+```bash
+cat next.config.js
+```
+
+**Expected output:**
+```javascript
+experimental: {
+  cacheComponents: true,
+  dynamicIO: true,
+}
+```
+
+**Test cache is working:**
+1. Open DevTools → Network tab
+2. Refresh page twice
+3. Second load should be faster (cache hit)
+4. Check terminal for cache logs (if enabled)
+
+### 2. Test Cache Duration and Tags
+
+**Verify cache tags in code:**
+
+```bash
+# Check tasks-cached.ts has proper cache directives
+cat src/lib/data/tasks-cached.ts | grep -A 5 "'use cache'"
+```
+
+**Expected:**
+```typescript
+'use cache'
+cacheLife('seconds')  // Very short for real-time
+cacheTag('tasks')
+cacheTag(`tasks-${projectId}`)
+```
+
+**Test cache invalidation:**
+1. Load project tasks page
+2. Create a new task
+3. Refresh page
+4. **Expected:** New task appears (cache was invalidated by updateTag)
+
+### 3. Test Real-time Task Updates
 
 **Test in two browser windows:**
 
@@ -1225,7 +1645,44 @@ npm run dev
 3. Create a new task
 4. **Expected:** Task appears in Window 1 instantly without refresh ✅
 
-### 2. Test Connection Status
+### 4. Test Suspense Boundaries
+
+**Check Suspense is working:**
+1. Open DevTools → Network tab
+2. Throttle to "Slow 3G"
+3. Refresh page
+4. **Expected:** See loading skeleton while tasks load ✅
+5. **Expected:** Page header and buttons appear immediately ✅
+
+**Verify in code:**
+```bash
+# Check page has Suspense wrapper
+cat src/app/dashboard/projects/\[id\]/tasks/page.tsx | grep -A 2 "Suspense"
+```
+
+**Expected:**
+```tsx
+<Suspense fallback={<TasksLoading />}>
+  <TasksWithCache projectId={projectId} />
+</Suspense>
+```
+
+### 5. Test Hybrid Cache + Real-time Flow
+
+**Complete flow test:**
+1. **Window 1:** Load project tasks page (cache hit, very fast)
+2. **Window 2:** Open same project tasks page (cache hit, very fast)
+3. **Window 1:** Create a new task
+4. **Expected in Window 2:** Task appears instantly via WebSocket ✅
+5. **Window 2:** Refresh page
+6. **Expected:** Task still there (cache was invalidated, fresh data loaded) ✅
+
+**This verifies:**
+- ✅ Cache is working (fast loads)
+- ✅ Real-time is working (instant updates)
+- ✅ Cache invalidation is working (fresh data on refresh)
+
+### 6. Test Connection Status
 
 **Browser DevTools:**
 1. Open Network tab
@@ -1236,7 +1693,7 @@ npm run dev
 6. Reconnect internet
 7. **Expected:** Connection status shows "Connected" ✅
 
-### 3. Test Presence Tracking
+### 7. Test Presence Tracking
 
 **Two browser windows:**
 1. Window 1: Login and go to project page
@@ -1245,7 +1702,7 @@ npm run dev
 4. Close Window 2
 5. **Expected:** Window 1 updates to show user is no longer online ✅
 
-### 4. Verify Realtime in Supabase Dashboard
+### 8. Verify Realtime in Supabase Dashboard
 
 **Supabase Dashboard:**
 1. Go to **Database → Replication**
@@ -1265,7 +1722,7 @@ npm run dev
    ```
 5. **Expected:** Task appears in browser instantly ✅
 
-### 5. Test RLS Applies to Realtime
+### 9. Test RLS Applies to Realtime
 
 **Security Test:**
 1. User A creates a project
@@ -1279,6 +1736,74 @@ npm run dev
 ---
 
 ## Architecture Decisions Explained
+
+### Why Cache Components + Real-time?
+
+**The Hybrid Approach:**
+
+```
+Without Cache Components (Traditional):
+┌──────────────────────────────────────────┐
+│ Every page load → Database query         │
+│ Heavy load on database                   │
+│ Slower page loads                        │
+│ BUT: Always fresh data                   │
+└──────────────────────────────────────────┘
+
+With Cache Components ONLY (No Real-time):
+┌──────────────────────────────────────────┐
+│ First load → Database query + Cache      │
+│ Subsequent loads → Cache (very fast)     │
+│ Light load on database                   │
+│ BUT: Stale data until cache expires      │
+└──────────────────────────────────────────┘
+
+Hybrid: Cache Components + Real-time (Best):
+┌──────────────────────────────────────────┐
+│ First load → Cache (fast)                │
+│ Real-time → WebSocket updates (instant)  │
+│ Mutations → updateTag + WebSocket        │
+│ ✅ Fast loads + Live updates + Fresh data│
+└──────────────────────────────────────────┘
+```
+
+**Why Very Short Cache for Real-time Data?**
+- `cacheLife('seconds')` (5-10s) provides optimal balance
+- Still reduces database load significantly
+- Doesn't interfere with real-time updates
+- Cache invalidation ensures consistency
+
+**Benefits:**
+1. ✅ **Performance** - Cached initial loads
+2. ✅ **Live Updates** - WebSocket for instant changes
+3. ✅ **Consistency** - updateTag invalidates stale caches
+4. ✅ **Scalability** - Reduced database queries
+5. ✅ **User Experience** - Fast + live = best UX
+
+### Why Cache Tags Instead of revalidatePath?
+
+**Cache Tags** (Cache Components):
+```typescript
+// Tag data
+'use cache'
+cacheTag('tasks')
+cacheTag('tasks-projectId')
+
+// Invalidate specific caches
+updateTag('tasks-projectId') // Only invalidate one project
+```
+
+**revalidatePath** (Traditional):
+```typescript
+// Invalidate entire path
+revalidatePath('/dashboard/projects/[id]/tasks') // Invalidates all projects
+```
+
+**Advantages of Cache Tags:**
+- ✅ **Granular control** - Invalidate specific data, not entire paths
+- ✅ **Better performance** - Less invalidation = more cache hits
+- ✅ **Flexible** - Multiple tags per cache entry
+- ✅ **Composable** - Mix generic and specific tags
 
 ### Why PostgreSQL Changes vs. Broadcast?
 
@@ -1338,7 +1863,76 @@ function TaskListRealtime({ initialTasks }) {
 
 ## Common Issues & Solutions
 
-### Issue 1: "Channel not subscribed"
+### Issue 1: Cache not working / Always fetching from database
+
+**Cause:** Cache Components not properly configured
+
+**Solutions:**
+```bash
+# 1. Verify next.config.js has experimental flags
+cat next.config.js | grep -A 3 "experimental"
+
+# Should see:
+# experimental: {
+#   cacheComponents: true,
+#   dynamicIO: true,
+# }
+
+# 2. Check function has 'use cache' directive
+cat src/lib/data/tasks-cached.ts | head -20
+
+# Should see:
+# 'use cache'
+# cacheLife('seconds')
+# cacheTag('tasks')
+
+# 3. Restart dev server (required after config changes)
+npm run dev
+```
+
+### Issue 2: Stale data after mutations
+
+**Cause:** Cache not invalidated after Server Action
+
+**Solution:** Add `updateTag()` to Server Actions:
+```tsx
+// ❌ Bad: No cache invalidation
+export async function createTask(input) {
+  await supabase.from('prj_tasks').insert(input);
+  // Cache still has old data!
+}
+
+// ✅ Good: Invalidate cache
+export async function createTask(input) {
+  await supabase.from('prj_tasks').insert(input);
+  updateTag('tasks'); // Invalidate cache
+  updateTag(`tasks-${input.project_id}`);
+}
+```
+
+### Issue 3: Real-time updates not showing
+
+**Cause:** Multiple possible causes
+
+**Solutions:**
+```bash
+# 1. Check Realtime is enabled in Supabase
+# Go to Database → Replication → Enable prj_tasks
+
+# 2. Check RLS policies allow SELECT
+# User must have SELECT permission to receive updates
+
+# 3. Check WebSocket connection
+# DevTools → Network → WS → Should see active connection
+
+# 4. Check filter is correct
+# filter: projectId ? `project_id=eq.${projectId}` : undefined
+
+# 5. Check cache isn't interfering
+# Use very short cacheLife('seconds') for real-time data
+```
+
+### Issue 4: "Channel not subscribed"
 
 **Cause:** Trying to use channel before subscription completes
 
@@ -1349,7 +1943,7 @@ if (connectionState.status !== CONNECTION_STATUS.CONNECTED) {
 }
 ```
 
-### Issue 2: Duplicate events
+### Issue 5: Duplicate events
 
 **Cause:** Multiple subscriptions to same channel
 
@@ -1364,7 +1958,7 @@ useEffect(() => {
 }, []);
 ```
 
-### Issue 3: Not receiving events
+### Issue 6: Not receiving events
 
 **Checklist:**
 1. ✅ Realtime enabled in Supabase Dashboard (Database → Replication)
@@ -1372,7 +1966,7 @@ useEffect(() => {
 3. ✅ Correct filter applied (`project_id=eq.123`)
 4. ✅ WebSocket connection active (check DevTools → Network → WS)
 
-### Issue 4: Presence state not updating
+### Issue 7: Presence state not updating
 
 **Cause:** Stale presence data after disconnect
 
@@ -1483,6 +2077,11 @@ onEvent: (payload) => {
 
 ## What You Learned
 
+✅ **Next.js 16 Cache Components** - 'use cache', cacheLife(), cacheTag()
+✅ **Hybrid Caching Strategy** - Cache Components + Real-time for optimal performance
+✅ **Cache Invalidation** - updateTag() for granular cache control
+✅ **Very Short Cache Durations** - cacheLife('seconds') for real-time data
+✅ **Suspense Boundaries** - Progressive loading with cached data
 ✅ **Supabase Realtime Architecture** - PostgreSQL Changes, Broadcast, Presence
 ✅ **React Hooks for Subscriptions** - Custom hooks with automatic cleanup
 ✅ **Real-time Task Updates** - Live CRUD operations across clients
@@ -1490,9 +2089,10 @@ onEvent: (payload) => {
 ✅ **Broadcast Events** - Ephemeral messaging (typing indicators)
 ✅ **Connection State Management** - Handle connect/disconnect gracefully
 ✅ **Security** - RLS applies to realtime, validate broadcast data
-✅ **Performance** - Channel limits, memory management, payload optimization
+✅ **Performance** - Cache + WebSocket = reduced load + instant updates
 ✅ **SOLID Principles** - Single Responsibility hooks
 ✅ **Type Safety** - TypeScript types for all realtime features
+✅ **Architecture Patterns** - Server Components (cache) + Client Components (real-time)
 
 ---
 
@@ -1512,21 +2112,44 @@ onEvent: (payload) => {
 
 ## Reference
 
-**Files Created:**
-- `src/constants/index.ts` - Realtime constants (EXTENDED)
-- `src/types/realtime.ts` - TypeScript types for realtime
+**Files Created/Updated:**
+
+**Cache & Data Layer:**
+- `next.config.js` - Enable Cache Components (UPDATED)
+- `src/lib/data/tasks-cached.ts` - Cached data fetchers with 'use cache' (NEW)
+- `src/lib/actions/tasks-with-cache-invalidation.ts` - Server Actions with updateTag() (NEW)
+
+**Realtime Hooks:**
 - `src/hooks/realtime/useRealtimeSubscription.ts` - Base subscription hook
 - `src/hooks/realtime/useTaskSubscription.ts` - Task subscription hook
 - `src/hooks/realtime/usePresence.ts` - Presence tracking hook
 - `src/hooks/realtime/useBroadcast.ts` - Broadcast events hook
+- `src/hooks/realtime/index.ts` - Hook exports
+
+**Components:**
 - `src/components/features/realtime/ConnectionStatus.tsx` - Connection UI
 - `src/components/features/realtime/OnlineUsers.tsx` - Online users list
 - `src/components/features/realtime/TypingIndicator.tsx` - Typing indicators
-- `src/components/features/tasks/TaskListRealtime.tsx` - Real-time task list
-- `src/app/dashboard/projects/[id]/tasks/page.tsx` - Real-time tasks page (UPDATED)
+- `src/components/features/tasks/TaskListRealtime.tsx` - Real-time task list with cache integration (UPDATED)
+
+**Pages:**
+- `src/app/dashboard/projects/[id]/tasks/page.tsx` - Real-time tasks page with Cache Components & Suspense (UPDATED)
+
+**Styles & Types:**
+- `src/constants/index.ts` - Realtime constants (EXTENDED)
+- `src/types/realtime.ts` - TypeScript types for realtime
 - `src/app/globals.css` - Animation styles (EXTENDED)
 
 **Key Concepts:**
+
+**Cache Components (Next.js 16):**
+- 'use cache' directive
+- cacheLife() - Duration control
+- cacheTag() - Granular invalidation
+- updateTag() - Cache invalidation
+- Very short durations for real-time data
+
+**Realtime:**
 - WebSocket connections
 - PostgreSQL replication (WAL)
 - Ephemeral messaging
@@ -1535,12 +2158,22 @@ onEvent: (payload) => {
 - Event broadcasting
 - Connection lifecycle management
 
+**Hybrid Architecture:**
+- Server Components with Cache Components for initial data
+- Client Components with WebSocket for live updates
+- Suspense boundaries for progressive loading
+- Cache invalidation on mutations
+- Short cache durations for frequently changing data
+
 **Technologies:**
+- Next.js 16 (Cache Components, dynamicIO, Suspense)
 - Supabase Realtime
 - WebSockets
 - PostgreSQL WAL (Write-Ahead Log)
-- React hooks
+- React 19.2 hooks
 - TypeScript
-- Next.js 16
 
-**Supabase Realtime Docs:** https://supabase.com/docs/guides/realtime
+**Documentation:**
+- **Next.js 16 Cache Components:** https://nextjs.org/docs/canary/app/api-reference/directives/use-cache
+- **Supabase Realtime:** https://supabase.com/docs/guides/realtime
+- **Next.js Suspense:** https://nextjs.org/docs/app/building-your-application/routing/loading-ui-and-streaming

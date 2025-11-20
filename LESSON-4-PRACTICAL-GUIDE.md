@@ -545,7 +545,7 @@ Create Server Actions for all CRUD operations on projects.
 cat > src/lib/actions/projects.ts << 'EOF'
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { updateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
   createProjectSchema,
@@ -603,8 +603,10 @@ export async function createProject(
       return { success: false, error: 'Failed to create project' }
     }
 
-    // Revalidate the projects page
-    revalidatePath('/dashboard/projects')
+    // Revalidate caches with tags
+    updateTag('projects')
+    updateTag('project-list')
+    updateTag('project-stats')
 
     return { success: true, data: { id: data.id } }
   } catch (error) {
@@ -745,9 +747,10 @@ export async function updateProject(
       return { success: false, error: 'Failed to update project' }
     }
 
-    // Revalidate relevant pages
-    revalidatePath('/dashboard/projects')
-    revalidatePath(`/dashboard/projects/${id}`)
+    // Revalidate caches with tags
+    updateTag('projects')
+    updateTag(`project-${id}`)
+    updateTag('project-stats')
 
     return { success: true, data: undefined }
   } catch (error) {
@@ -786,8 +789,10 @@ export async function deleteProject(id: string): Promise<ActionResponse> {
       return { success: false, error: 'Failed to delete project' }
     }
 
-    // Revalidate projects page
-    revalidatePath('/dashboard/projects')
+    // Revalidate caches with tags
+    updateTag('projects')
+    updateTag('project-list')
+    updateTag('project-stats')
 
     return { success: true, data: undefined }
   } catch (error) {
@@ -838,7 +843,11 @@ export async function toggleProjectStatus(id: string): Promise<ActionResponse> {
       return { success: false, error: 'Failed to update status' }
     }
 
-    revalidatePath('/dashboard/projects')
+    // Revalidate caches with tags
+    updateTag('projects')
+    updateTag('project-list')
+    updateTag('project-stats')
+
     return { success: true, data: undefined }
   } catch (error) {
     console.error('Toggle status error:', error)
@@ -860,7 +869,7 @@ cat src/lib/actions/projects.ts | head -50
 2. **Validation** - Zod schemas validate inputs
 3. **Authentication** - Check user before operations
 4. **RLS** - Database policies filter by owner_id
-5. **Revalidation** - `revalidatePath()` refreshes cache
+5. **Cache Revalidation** - `updateTag()` invalidates specific caches
 6. **Error Handling** - Try/catch with clear error messages
 
 ---
@@ -1454,33 +1463,102 @@ cat src/components/features/projects/ProjectStats.tsx
 
 ---
 
-### 🎯 STEP 7 — Create Project Pages
+### 🎯 STEP 7 — Enable Cache Components in Next.js 16
 
-Create the pages to display and manage projects.
+First, enable the Cache Components feature in your Next.js configuration.
+
+**Update `next.config.js`:**
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    cacheComponents: true
+  }
+}
+
+module.exports = nextConfig
+```
+
+This enables Next.js 16's Cache Components feature, allowing you to use `'use cache'` directives for component-level caching with fine-grained revalidation.
+
+---
+
+### 🎯 STEP 8 — Create Project Pages
+
+Create the pages to display and manage projects with Cache Components.
 
 **Create projects list page:**
 
 ```bash
 cat > src/app/dashboard/projects/page.tsx << 'EOF'
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { getProjects, getProjectStats } from '@/lib/actions/projects'
 import { ProjectList } from '@/components/features/projects/ProjectList'
 import { ProjectStats } from '@/components/features/projects/ProjectStats'
 import { redirect } from 'next/navigation'
+import { cacheLife, cacheTag } from 'next/cache'
 
-export const dynamic = 'force-dynamic'
+// Cached async component for project stats
+async function ProjectStatsSection() {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('project-stats')
 
-export default async function ProjectsPage() {
-  const [projectsResult, statsResult] = await Promise.all([
-    getProjects(),
-    getProjectStats(),
-  ])
+  const statsResult = await getProjectStats()
 
-  // Redirect to login if not authenticated
-  if (!projectsResult.success || !statsResult.success) {
+  if (!statsResult.success) {
     redirect('/login')
   }
 
+  return statsResult.data ? (
+    <div className="mb-8">
+      <ProjectStats stats={statsResult.data} />
+    </div>
+  ) : null
+}
+
+// Cached async component for projects list
+async function ProjectsListSection() {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('projects')
+  cacheTag('project-list')
+
+  const projectsResult = await getProjects()
+
+  if (!projectsResult.success) {
+    redirect('/login')
+  }
+
+  return <ProjectList initialProjects={projectsResult.data || []} />
+}
+
+// Skeleton loaders
+function ProjectStatsSkeleton() {
+  return (
+    <div className="mb-8">
+      <div className="animate-pulse">
+        <div className="h-24 bg-gray-200 rounded-lg"></div>
+      </div>
+    </div>
+  )
+}
+
+function ProjectsListSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="animate-pulse">
+          <div className="h-32 bg-gray-200 rounded-lg"></div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function ProjectsPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -1498,13 +1576,13 @@ export default async function ProjectsPage() {
         </Link>
       </div>
 
-      {statsResult.data && (
-        <div className="mb-8">
-          <ProjectStats stats={statsResult.data} />
-        </div>
-      )}
+      <Suspense fallback={<ProjectStatsSkeleton />}>
+        <ProjectStatsSection />
+      </Suspense>
 
-      <ProjectList initialProjects={projectsResult.data || []} />
+      <Suspense fallback={<ProjectsListSkeleton />}>
+        <ProjectsListSection />
+      </Suspense>
     </div>
   )
 }
@@ -1538,18 +1616,19 @@ cat src/app/dashboard/projects/new/page.tsx
 
 ```bash
 cat > src/app/dashboard/projects/[id]/page.tsx << 'EOF'
+import { Suspense } from 'react'
 import { getProject } from '@/lib/actions/projects'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { cacheLife, cacheTag } from 'next/cache'
 
-export const dynamic = 'force-dynamic'
+// Cached async component for project details
+async function ProjectDetails({ id }: { id: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('projects')
+  cacheTag(`project-${id}`)
 
-export default async function ProjectPage({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  const { id } = await params
   const result = await getProject(id)
 
   if (!result.success || !result.data) {
@@ -1562,6 +1641,94 @@ export default async function ProjectPage({
   const isOverdue = endDate && endDate < new Date() && project.status !== 'completed' && project.status !== 'archived'
 
   return (
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">{project.name}</h1>
+          <div className="flex items-center gap-2 mt-2">
+            <span
+              className={`px-3 py-1 rounded-full text-sm font-medium ${
+                project.status === 'completed'
+                  ? 'bg-blue-100 text-blue-800'
+                  : project.status === 'active'
+                  ? 'bg-green-100 text-green-800'
+                  : project.status === 'on_hold'
+                  ? 'bg-yellow-100 text-yellow-800'
+                  : 'bg-gray-100 text-gray-800'
+              }`}
+            >
+              {project.status}
+            </span>
+            {isOverdue && (
+              <span className="px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
+                Overdue
+              </span>
+            )}
+          </div>
+        </div>
+        <Link
+          href={`/dashboard/projects/${project.id}/edit`}
+          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+        >
+          Edit
+        </Link>
+      </div>
+
+      {project.description && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Description</h2>
+          <p className="text-gray-600">{project.description}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Start Date</h3>
+          <p className="text-gray-600">{startDate.toLocaleDateString()}</p>
+        </div>
+        {endDate && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">End Date</h3>
+            <p className="text-gray-600">{endDate.toLocaleDateString()}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Created</h3>
+        <p className="text-gray-600">{new Date(project.created_at).toLocaleString()}</p>
+      </div>
+
+      {project.updated_at && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Last Updated</h3>
+          <p className="text-gray-600">{new Date(project.updated_at).toLocaleString()}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProjectDetailSkeleton() {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+        <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+        <div className="h-20 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  )
+}
+
+export default async function ProjectPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+
+  return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="mb-6">
         <Link
@@ -1572,89 +1739,9 @@ export default async function ProjectPage({
         </Link>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{project.name}</h1>
-            <div className="flex items-center gap-2 mt-2">
-              <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  project.status === 'completed'
-                    ? 'bg-blue-100 text-blue-800'
-                    : project.status === 'active'
-                      ? 'bg-green-100 text-green-800'
-                      : project.status === 'on_hold'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-gray-100 text-gray-800'
-                }`}
-              >
-                {project.status.replace('_', ' ')}
-              </span>
-              {!project.is_active && (
-                <span className="px-3 py-1 rounded bg-gray-200 text-gray-600 text-sm font-medium">
-                  Inactive
-                </span>
-              )}
-              {isOverdue && (
-                <span className="px-3 py-1 rounded bg-red-200 text-red-800 text-sm font-medium">
-                  Overdue
-                </span>
-              )}
-            </div>
-          </div>
-          <Link
-            href={`/dashboard/projects/${id}/edit`}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Edit
-          </Link>
-        </div>
-
-        <div className="space-y-4">
-          {project.description && (
-            <div>
-              <h2 className="text-sm font-medium text-gray-600 mb-2">
-                Description
-              </h2>
-              <p className="text-gray-900 whitespace-pre-wrap">
-                {project.description}
-              </p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-            <div>
-              <h3 className="text-sm font-medium text-gray-600">Start Date</h3>
-              <p className="text-gray-900 mt-1">
-                {startDate.toLocaleDateString()}
-              </p>
-            </div>
-            {endDate && (
-              <div>
-                <h3 className="text-sm font-medium text-gray-600">End Date</h3>
-                <p className={`mt-1 ${isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
-                  {endDate.toLocaleDateString()}
-                  {isOverdue && ' (Overdue)'}
-                </p>
-              </div>
-            )}
-            <div>
-              <h3 className="text-sm font-medium text-gray-600">Created</h3>
-              <p className="text-gray-900 mt-1">
-                {new Date(project.created_at).toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-600">
-                Last Updated
-              </h3>
-              <p className="text-gray-900 mt-1">
-                {new Date(project.updated_at).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Suspense fallback={<ProjectDetailSkeleton />}>
+        <ProjectDetails id={id} />
+      </Suspense>
     </div>
   )
 }
@@ -1668,11 +1755,39 @@ cat src/app/dashboard/projects/[id]/page.tsx
 
 ```bash
 cat > src/app/dashboard/projects/[id]/edit/page.tsx << 'EOF'
+import { Suspense } from 'react'
 import { getProject } from '@/lib/actions/projects'
 import { notFound } from 'next/navigation'
 import { ProjectForm } from '@/components/features/projects/ProjectForm'
+import { cacheLife, cacheTag } from 'next/cache'
 
-export const dynamic = 'force-dynamic'
+// Cached async component for edit form data
+async function EditProjectForm({ id }: { id: string }) {
+  'use cache'
+  cacheLife('hours')
+  cacheTag('projects')
+  cacheTag(`project-${id}`)
+
+  const result = await getProject(id)
+
+  if (!result.success || !result.data) {
+    notFound()
+  }
+
+  return <ProjectForm project={result.data} mode="edit" />
+}
+
+function EditFormSkeleton() {
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="animate-pulse space-y-4">
+        <div className="h-10 bg-gray-200 rounded"></div>
+        <div className="h-32 bg-gray-200 rounded"></div>
+        <div className="h-10 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  )
+}
 
 export default async function EditProjectPage({
   params,
@@ -1680,16 +1795,13 @@ export default async function EditProjectPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const result = await getProject(id)
-
-  if (!result.success || !result.data) {
-    notFound()
-  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-gray-900 mb-8">Edit Project</h1>
-      <ProjectForm project={result.data} mode="edit" />
+      <Suspense fallback={<EditFormSkeleton />}>
+        <EditProjectForm id={id} />
+      </Suspense>
     </div>
   )
 }
@@ -1756,6 +1868,102 @@ cat src/app/dashboard/page.tsx
 
 ---
 
+### 🎯 STEP 9 — Understanding Cache Components
+
+Next.js 16's Cache Components feature provides fine-grained control over caching with component-level granularity and tag-based revalidation.
+
+#### What We're Caching
+
+**Project Stats** (`'use cache'` with `cacheLife('hours')`):
+- Dashboard statistics are expensive to compute
+- Don't change frequently
+- Cache for 1 hour to reduce database load
+- Tagged with `'project-stats'` for selective revalidation
+
+**Projects List** (`'use cache'` with `cacheLife('hours')`):
+- Project listings cached per user
+- Revalidated when projects are created/updated/deleted
+- Uses multiple tags: `'projects'` and `'project-list'`
+- Ensures fast page loads while staying fresh
+
+**Individual Projects** (`'use cache'` with project-specific tag):
+- Each project cached independently
+- Uses tags: `'projects'` and `'project-{id}'`
+- Allows selective revalidation of specific projects
+- Edit form data also cached for instant load
+
+#### Cache Revalidation Strategy
+
+**When creating a project:**
+```typescript
+updateTag('projects')      // Revalidate all project-related caches
+updateTag('project-list')  // Revalidate the projects list
+updateTag('project-stats') // Revalidate dashboard stats
+```
+
+**When updating a project:**
+```typescript
+updateTag('projects')        // Revalidate all project-related caches
+updateTag(`project-${id}`)   // Revalidate specific project
+updateTag('project-stats')   // Revalidate stats (if status changed)
+```
+
+**When deleting a project:**
+```typescript
+updateTag('projects')        // Revalidate all project-related caches
+updateTag('project-list')    // Revalidate the projects list
+updateTag('project-stats')   // Revalidate stats
+```
+
+#### Benefits of Cache Components
+
+✅ **Performance**: Cached responses served instantly from the edge
+✅ **Reduced Load**: Fewer database queries means lower costs
+✅ **User Experience**: Instant navigation with Partial Prerendering (PPR)
+✅ **Selective Updates**: Only revalidate what changed, not entire routes
+✅ **Read Your Own Writes**: `updateTag` ensures users see their changes immediately
+✅ **Granular Control**: Different cache durations per component
+
+#### How Cache Components Work
+
+1. **Cache Directive**: `'use cache'` marks a component for caching
+2. **Cache Duration**: `cacheLife('hours')` sets how long to cache (seconds, minutes, hours, days)
+3. **Cache Tags**: `cacheTag('tag-name')` allows selective revalidation
+4. **Tag Updates**: `updateTag('tag-name')` invalidates specific caches
+
+**Example:**
+```typescript
+async function ProjectStatsSection() {
+  'use cache'                    // Enable caching for this component
+  cacheLife('hours')             // Cache for 1 hour
+  cacheTag('project-stats')      // Tag for selective revalidation
+
+  const stats = await getProjectStats()
+  return <ProjectStats stats={stats} />
+}
+
+// Later, when a project is created:
+updateTag('project-stats')       // Invalidate only the stats cache
+```
+
+#### Comparison with Previous Approach
+
+**Before (revalidatePath):**
+- Invalidates entire route
+- All components on the page refetch
+- More database queries
+- Slower after mutations
+
+**After (updateTag):**
+- Invalidates only tagged components
+- Only affected components refetch
+- Fewer database queries
+- Faster, more surgical updates
+
+For more details on Cache Components and PPR, see `NEXTJS16-CACHE-REFERENCE.md` in the project root.
+
+---
+
 ## 🎓 3. REVIEW
 
 ### What You Learned
@@ -1785,13 +1993,21 @@ In this lesson, you built a complete project management system with:
    - Server-side aggregation for performance
    - Statistics dashboard
 
-5. **UI Components**
+5. **Cache Components (Next.js 16)**
+   - Component-level caching with `'use cache'`
+   - Fine-grained revalidation with `updateTag()`
+   - Cache tags for selective updates
+   - Suspense boundaries for loading states
+   - Instant navigation with PPR
+
+6. **UI Components**
    - ProjectCard - Individual project display
    - ProjectList - Projects listing
    - ProjectForm - Reusable create/edit form
    - ProjectStats - Analytics dashboard
+   - Skeleton loaders for loading states
 
-6. **Pages & Routing**
+7. **Pages & Routing**
    - `/dashboard/projects` - List all projects
    - `/dashboard/projects/new` - Create project
    - `/dashboard/projects/[id]` - View project
@@ -1815,9 +2031,13 @@ In this lesson, you built a complete project management system with:
 - Clear error messages
 - Type inference for TypeScript
 
-**Revalidation:**
-- `revalidatePath()` refreshes cache
-- Shows latest data after mutations
+**Cache Components:**
+- `'use cache'` directive for component caching
+- `cacheLife()` sets cache duration
+- `cacheTag()` tags caches for selective revalidation
+- `updateTag()` invalidates specific caches
+- Works with Suspense for loading states
+- Enables Partial Prerendering (PPR)
 
 ### Best Practices Applied
 
@@ -1825,8 +2045,9 @@ In this lesson, you built a complete project management system with:
 ✅ **Security** - RLS policies enforce ownership
 ✅ **Error Handling** - Clear error messages
 ✅ **Type Safety** - Full TypeScript coverage
-✅ **Performance** - RPC for complex queries
-✅ **UX** - Loading states and feedback
+✅ **Performance** - RPC for complex queries + Cache Components
+✅ **Caching Strategy** - Component-level caching with selective revalidation
+✅ **UX** - Loading states with Suspense and skeleton loaders
 
 ### Testing Your Implementation
 
@@ -1872,9 +2093,15 @@ In this lesson, you built a complete project management system with:
 - Verify RLS policies allow INSERT
 - Ensure all required fields provided
 
-**Issue: Data not refreshing**
-- Check `revalidatePath()` is called
-- Verify page has `export const dynamic = 'force-dynamic'`
+**Issue: Data not refreshing after mutations**
+- Verify `updateTag()` is called in Server Actions
+- Check that cache tags match between components and actions
+- Ensure `cacheTag()` is properly set on cached components
+
+**Issue: Cache Components not working**
+- Verify `cacheComponents: true` is set in `next.config.js`
+- Check that `'use cache'` directive is at the top of async components
+- Ensure `cacheLife()` and `cacheTag()` are imported from `'next/cache'`
 
 ### Next Steps
 

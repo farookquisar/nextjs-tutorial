@@ -8,7 +8,7 @@
 
 ### What You'll Build
 
-In this lesson, you'll implement **Project Members Management** using the **prj_project_members** table created in Lesson 2, introducing **many-to-many relationships** and **role-based access control**:
+In this lesson, you'll implement **Project Members Management** using the **prj_project_members** table created in Lesson 2, introducing **many-to-many relationships**, **role-based access control**, and **Next.js 16 Cache Components** for multi-user collaboration:
 
 ✅ **Many-to-Many Relationships** - Users can belong to multiple projects, projects can have multiple users
 ✅ **Member Roles** - Owner, Admin, Member, Viewer with different permissions
@@ -18,6 +18,9 @@ In this lesson, you'll implement **Project Members Management** using the **prj_
 ✅ **Update Roles** - Change member permissions
 ✅ **RPC Functions** - Complex member queries with role checking
 ✅ **Row-Level Security** - Enforce permissions at database level
+✅ **Cache Components** - User-specific caching with `'use cache'`, `cacheLife()`, and `cacheTag()`
+✅ **Granular Invalidation** - Use `updateTag()` for precise cache updates
+✅ **Suspense Boundaries** - Streaming with skeleton loaders
 
 **What are Many-to-Many Relationships?**
 - One user can be a member of many projects
@@ -36,12 +39,16 @@ In this lesson, you'll implement **Project Members Management** using the **prj_
 
 ### What You'll Implement
 
+✅ **Next.js 16 Configuration** - Enable Cache Components in `next.config.js`
 ✅ **Constants Extension** - Add member roles and permissions to `src/constants/index.ts`
-✅ **Member CRUD** - Add, remove, update members
+✅ **Member CRUD** - Add, remove, update members with Cache Components
 ✅ **RPC Functions** - `get_project_members()`, `check_member_role()`, `get_user_projects()`
 ✅ **Role-Based Access** - Enforce permissions based on member roles
 ✅ **Member UI Components** - MemberCard, MemberList, InviteMemberForm
 ✅ **Permission Checks** - Server-side role validation
+✅ **User-Specific Caching** - Cache tags for teams, permissions, and project members
+✅ **Cache Invalidation** - Granular updates with `updateTag()` instead of `revalidatePath()`
+✅ **Suspense Boundaries** - Async components with skeleton loaders
 
 ```
 📁 Your App Structure (After This Lesson)
@@ -79,11 +86,60 @@ In this lesson, you'll implement **Project Members Management** using the **prj_
 ✅ **Flexible** - Easy to add new roles or permissions
 ✅ **Type-safe** - TypeScript + constants = autocomplete for roles
 ✅ **Maintainable** - Clear separation of concerns (SOLID)
-✅ **Performant** - RPC functions for efficient queries
+✅ **Performant** - RPC functions + Cache Components = blazing fast
+✅ **User-Optimized** - Granular cache invalidation means users only see fresh data when needed
+✅ **Real-Time Ready** - Short cache lifetimes support collaboration features
+✅ **Efficient** - User-specific caching prevents unnecessary invalidations
 
 ---
 
 ## 🎯 2. STEPS
+
+### 🎯 STEP 0 — Configure Next.js 16 Cache Components
+
+**Update `next.config.js` to enable experimental cache components:**
+
+```bash
+cat > next.config.js << 'EOF'
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    // Enable Cache Components (React 19 + Next.js 16)
+    cacheComponents: true,
+    cacheLife: {
+      // Team collaboration data needs shorter cache durations
+      seconds: {
+        stale: 10,
+        revalidate: 10,
+        expire: 30,
+      },
+      minutes: {
+        stale: 30,
+        revalidate: 60,
+        expire: 300,
+      },
+      hours: {
+        stale: 600,
+        revalidate: 3600,
+        expire: 7200,
+      },
+    },
+  },
+};
+
+module.exports = nextConfig;
+EOF
+
+# Verify
+cat next.config.js
+```
+
+**Why this configuration?**
+- Team collaboration requires shorter cache lifetimes
+- Member changes should be reflected quickly across users
+- Balance between performance and data freshness
+
+---
 
 ### 🎯 STEP 1 — Add Member-Specific Constants
 
@@ -851,9 +907,9 @@ npx tsc --noEmit src/utils/permissions.ts
 
 ---
 
-### 🎯 STEP 5 — Create Member Server Actions
+### 🎯 STEP 5 — Create Member Server Actions with Cache Components
 
-Server Actions for member management:
+**Server Actions for member management using Next.js 16 Cache Components:**
 
 ```bash
 mkdir -p src/lib/actions
@@ -863,9 +919,10 @@ cat > src/lib/actions/members.ts << 'EOF'
 
 // ============================================
 // MEMBER SERVER ACTIONS
+// Next.js 16 Cache Components with User-Specific Tags
 // ============================================
 
-import { revalidatePath } from 'next/cache';
+import { updateTag, cacheLife, cacheTag } from 'next/cache';
 import { createServerClient } from '@/lib/supabase/server';
 import {
   inviteMemberSchema,
@@ -901,16 +958,20 @@ async function getAuthenticatedUser() {
 }
 
 // ============================================
-// GET PROJECT MEMBERS
+// GET PROJECT MEMBERS (CACHE COMPONENT)
+// Cached with user-specific tags for team collaboration
 // ============================================
 
 export async function getProjectMembers(
   projectId: string
 ): Promise<{ success: boolean; data?: ProjectMember[]; error?: string }> {
   'use cache';
+  cacheLife('minutes'); // Team data needs frequent updates
+  cacheTag('team-members'); // Global team members tag
+  cacheTag(`project-${projectId}-members`); // Project-specific members
 
   try {
-    await getAuthenticatedUser();
+    const user = await getAuthenticatedUser();
 
     const supabase = await createServerClient();
     const { data, error } = await supabase.rpc('get_project_members', {
@@ -933,7 +994,8 @@ export async function getProjectMembers(
 }
 
 // ============================================
-// CHECK MEMBER PERMISSIONS
+// CHECK MEMBER PERMISSIONS (CACHE COMPONENT)
+// User-specific permissions caching
 // ============================================
 
 export async function checkMemberPermissions(
@@ -941,14 +1003,20 @@ export async function checkMemberPermissions(
   userId?: string
 ): Promise<{ success: boolean; data?: MemberPermissions; error?: string }> {
   'use cache';
+  cacheLife('minutes'); // Permissions need to update quickly
+  cacheTag(`project-${projectId}-members`); // Project members affect permissions
 
   try {
-    await getAuthenticatedUser();
+    const user = await getAuthenticatedUser();
+    const targetUserId = userId || user.id;
+
+    // Add user-specific tag for permission changes
+    cacheTag(`user-${targetUserId}-permissions`);
 
     const supabase = await createServerClient();
     const { data, error } = await supabase.rpc('check_member_role', {
       p_project_id: projectId,
-      p_user_id: userId || null,
+      p_user_id: targetUserId,
     });
 
     if (error) {
@@ -967,20 +1035,26 @@ export async function checkMemberPermissions(
 }
 
 // ============================================
-// GET USER PROJECTS
+// GET USER PROJECTS (CACHE COMPONENT)
+// User-specific project list with team context
 // ============================================
 
 export async function getUserProjects(
   userId?: string
 ): Promise<{ success: boolean; data?: UserProject[]; error?: string }> {
   'use cache';
+  cacheLife('hours'); // User's project list changes less frequently
 
   try {
-    await getAuthenticatedUser();
+    const user = await getAuthenticatedUser();
+    const targetUserId = userId || user.id;
+
+    // User-specific teams cache
+    cacheTag(`user-${targetUserId}-teams`);
 
     const supabase = await createServerClient();
     const { data, error } = await supabase.rpc('get_user_projects', {
-      p_user_id: userId || null,
+      p_user_id: targetUserId,
     });
 
     if (error) {
@@ -999,7 +1073,8 @@ export async function getUserProjects(
 }
 
 // ============================================
-// INVITE MEMBER
+// INVITE MEMBER (WITH CACHE INVALIDATION)
+// Updates multiple user-specific caches
 // ============================================
 
 export async function inviteMember(
@@ -1026,9 +1101,16 @@ export async function inviteMember(
       };
     }
 
-    // Revalidate members list
-    revalidatePath(ROUTES.PROJECT_MEMBERS(validated.project_id));
-    revalidatePath(ROUTES.PROJECT_VIEW(validated.project_id));
+    const newMemberId = data[0].user_id;
+
+    // Update cache tags for all affected users
+    updateTag('team-members'); // Global team members
+    updateTag(`project-${validated.project_id}-members`); // Project members
+
+    if (newMemberId) {
+      updateTag(`user-${newMemberId}-teams`); // New member's teams
+      updateTag(`user-${newMemberId}-permissions`); // New member's permissions
+    }
 
     return { success: true };
   } catch (error) {
@@ -1041,7 +1123,8 @@ export async function inviteMember(
 }
 
 // ============================================
-// UPDATE MEMBER ROLE
+// UPDATE MEMBER ROLE (WITH CACHE INVALIDATION)
+// Updates permissions for specific user
 // ============================================
 
 export async function updateMemberRole(
@@ -1065,9 +1148,9 @@ export async function updateMemberRole(
       return { success: false, error: ERROR_MESSAGES.MEMBER.INSUFFICIENT_PERMISSIONS };
     }
 
-    // Revalidate members list
-    revalidatePath(ROUTES.PROJECT_MEMBERS(validated.project_id));
-    revalidatePath(ROUTES.PROJECT_VIEW(validated.project_id));
+    // Update cache tags - role change affects permissions
+    updateTag(`project-${validated.project_id}-members`); // Project members
+    updateTag(`user-${validated.user_id}-permissions`); // User's permissions changed
 
     return { success: true };
   } catch (error) {
@@ -1080,7 +1163,8 @@ export async function updateMemberRole(
 }
 
 // ============================================
-// REMOVE MEMBER
+// REMOVE MEMBER (WITH CACHE INVALIDATION)
+// Updates caches for removed user and project
 // ============================================
 
 export async function removeMember(
@@ -1104,9 +1188,11 @@ export async function removeMember(
       return { success: false, error: ERROR_MESSAGES.MEMBER.CANNOT_REMOVE_OWNER };
     }
 
-    // Revalidate members list
-    revalidatePath(ROUTES.PROJECT_MEMBERS(validated.project_id));
-    revalidatePath(ROUTES.PROJECT_VIEW(validated.project_id));
+    // Update cache tags for all affected data
+    updateTag('team-members'); // Global team members
+    updateTag(`project-${validated.project_id}-members`); // Project members
+    updateTag(`user-${validated.user_id}-teams`); // Removed user's teams
+    updateTag(`user-${validated.user_id}-permissions`); // Removed user's permissions
 
     return { success: true };
   } catch (error) {
@@ -1456,9 +1542,9 @@ npx tsc --noEmit src/components/features/members/*.tsx
 
 ---
 
-### 🎯 STEP 7 — Create Members Page
+### 🎯 STEP 7 — Create Members Page with Suspense
 
-Create the members page:
+**Create the members page with Suspense boundaries for Cache Components:**
 
 ```bash
 mkdir -p 'src/app/dashboard/projects/[id]/members'
@@ -1466,8 +1552,10 @@ mkdir -p 'src/app/dashboard/projects/[id]/members'
 cat > 'src/app/dashboard/projects/[id]/members/page.tsx' << 'EOF'
 // ============================================
 // MEMBERS PAGE (Server Component)
+// Next.js 16 with Cache Components & Suspense
 // ============================================
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { getProjectMembers, checkMemberPermissions } from '@/lib/actions/members';
 import { MemberList } from '@/components/features/members/MemberList';
@@ -1479,10 +1567,38 @@ interface MembersPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function MembersPage({ params }: MembersPageProps) {
-  const { id: projectId } = await params;
+// ============================================
+// SKELETON LOADERS
+// ============================================
 
-  // Fetch members and check permissions
+function MemberListSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="p-4 bg-gray-50 border rounded-lg animate-pulse">
+          <div className="h-5 bg-gray-200 rounded w-2/3 mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PermissionsSkeleton() {
+  return (
+    <div className="p-6 space-y-6">
+      <div className="h-8 bg-gray-200 rounded w-1/3 animate-pulse"></div>
+      <div className="h-64 bg-gray-100 rounded animate-pulse"></div>
+    </div>
+  );
+}
+
+// ============================================
+// MEMBERS CONTENT (CACHE COMPONENT)
+// ============================================
+
+async function MembersContent({ projectId }: { projectId: string }) {
+  // Fetch members and check permissions (both cached)
   const [membersResult, permissionsResult] = await Promise.all([
     getProjectMembers(projectId),
     checkMemberPermissions(projectId),
@@ -1541,6 +1657,20 @@ export default async function MembersPage({ params }: MembersPageProps) {
     </div>
   );
 }
+
+// ============================================
+// MAIN PAGE COMPONENT
+// ============================================
+
+export default async function MembersPage({ params }: MembersPageProps) {
+  const { id: projectId } = await params;
+
+  return (
+    <Suspense fallback={<PermissionsSkeleton />}>
+      <MembersContent projectId={projectId} />
+    </Suspense>
+  );
+}
 EOF
 
 # Verify
@@ -1555,9 +1685,293 @@ npx tsc --noEmit 'src/app/dashboard/projects/[id]/members/page.tsx'
 
 ---
 
+### 🎯 STEP 8 — Understanding Multi-User Caching Strategy
+
+**Why Team Collaboration Needs Special Caching**
+
+Traditional caching strategies don't work well for team collaboration because:
+- Different users see different data based on their roles
+- Changes by one user need to reflect immediately for others
+- Permission changes affect what users can see/do
+- Member additions/removals impact multiple users' caches
+
+**Cache Component Architecture for Teams**
+
+```bash
+cat > CACHING-STRATEGY.md << 'EOF'
+# Multi-User Caching Strategy for Team Collaboration
+
+## Cache Tag Hierarchy
+
+### 1. Global Team Tags
+```typescript
+cacheTag('team-members'); // All team member data
+```
+**When to invalidate:** Member added/removed from any project
+**Affects:** All team member lists across the application
+
+### 2. Project-Specific Tags
+```typescript
+cacheTag(`project-${projectId}-members`); // Specific project members
+```
+**When to invalidate:** Member added/removed/role changed in project
+**Affects:** All views of that project's members
+
+### 3. User-Specific Tags
+```typescript
+cacheTag(`user-${userId}-teams`);        // User's project memberships
+cacheTag(`user-${userId}-permissions`);  // User's permissions
+```
+**When to invalidate:** User added/removed from project, or role changed
+**Affects:** Only that specific user's data
+
+## Cache Lifetimes for Collaboration
+
+### Real-Time Collaboration (seconds)
+```typescript
+cacheLife('seconds'); // 10-30 seconds
+```
+**Use for:** Live updates, active collaboration sessions
+**Not used in this lesson** - would be for chat, live editing
+
+### Frequent Updates (minutes)
+```typescript
+cacheLife('minutes'); // 30-60 seconds stale, 5 min expire
+```
+**Use for:**
+- Team member lists (people join/leave)
+- User permissions (roles change)
+- Project membership status
+
+**Why:** Balance between performance and freshness
+
+### Infrequent Updates (hours)
+```typescript
+cacheLife('hours'); // 10 min stale, 2 hours expire
+```
+**Use for:**
+- User's project list (doesn't change often)
+- Project metadata
+
+**Why:** Better performance, changes are rare
+
+## Cache Invalidation Patterns
+
+### Pattern 1: Cascade Invalidation
+When inviting a member, invalidate multiple related caches:
+```typescript
+updateTag('team-members');                        // Global
+updateTag(`project-${projectId}-members`);        // Project
+updateTag(`user-${newMemberId}-teams`);          // New user
+updateTag(`user-${newMemberId}-permissions`);    // New user permissions
+```
+
+### Pattern 2: Surgical Invalidation
+When updating a role, only invalidate affected caches:
+```typescript
+updateTag(`project-${projectId}-members`);       // Project members
+updateTag(`user-${userId}-permissions`);         // User permissions only
+```
+
+### Pattern 3: User-Specific Invalidation
+When removing a member:
+```typescript
+updateTag('team-members');                       // Global
+updateTag(`project-${projectId}-members`);       // Project
+updateTag(`user-${removedUserId}-teams`);       // Removed user
+updateTag(`user-${removedUserId}-permissions`); // Removed user permissions
+```
+
+## Why Not Use revalidatePath?
+
+### Old Approach (revalidatePath)
+```typescript
+revalidatePath('/dashboard/projects/[id]/members');
+```
+**Problems:**
+- Invalidates ALL users' caches for that path
+- No way to invalidate specific user's data
+- Can't selectively update related caches
+- Over-invalidates, hurting performance
+
+### New Approach (updateTag)
+```typescript
+updateTag(`user-${userId}-permissions`);
+```
+**Benefits:**
+- Invalidate only affected user's cache
+- Surgical cache updates
+- Related data stays cached
+- Better performance, happier users
+
+## Cache Component Benefits for Teams
+
+### 1. User Isolation
+Each user's cache is separate:
+```typescript
+// User A sees their permissions
+cacheTag(`user-${userA.id}-permissions`);
+
+// User B's cache is unaffected when User A's role changes
+cacheTag(`user-${userB.id}-permissions`);
+```
+
+### 2. Automatic Deduplication
+Multiple components requesting same data get one cached response:
+```typescript
+// Both components get same cached data
+const members1 = await getProjectMembers(projectId);
+const members2 = await getProjectMembers(projectId);
+```
+
+### 3. Optimistic Freshness
+Next.js serves stale content while revalidating:
+- User sees data instantly (stale-while-revalidate)
+- Background fetch updates cache
+- Next request gets fresh data
+
+### 4. Granular Control
+Fine-tuned control over what gets cached and when:
+```typescript
+// Frequent updates
+cacheLife('minutes');
+cacheTag('team-members');
+
+// Less frequent
+cacheLife('hours');
+cacheTag(`user-${userId}-teams`);
+```
+
+## Testing Your Caching Strategy
+
+### Test 1: Member Addition
+1. User A invites User B
+2. User B's team list should update immediately
+3. Other users' caches should not invalidate
+
+### Test 2: Role Change
+1. Owner changes Admin to Member
+2. Admin's permissions should update
+3. Other members' caches unaffected
+
+### Test 3: Member Removal
+1. Admin removes Member
+2. Member's team list updates
+3. Project member list updates
+4. Other unrelated data stays cached
+
+## Cache Tag Naming Conventions
+
+### Use Descriptive Prefixes
+```typescript
+'team-members'                    // Global scope
+`project-${id}-members`          // Project scope
+`user-${id}-teams`               // User scope
+`user-${id}-permissions`         // User scope
+```
+
+### Include IDs for Specificity
+```typescript
+`project-${projectId}-members`    // Specific project
+`user-${userId}-permissions`      // Specific user
+```
+
+### Avoid Over-Generalization
+```typescript
+// ❌ Too broad
+cacheTag('data');
+
+// ✅ Specific
+cacheTag('team-members');
+```
+
+## Performance Considerations
+
+### Cache Hit Ratio
+- Higher cache life = more hits, less fresh data
+- Lower cache life = fewer hits, fresher data
+- Balance based on feature needs
+
+### Memory Usage
+- Each tag combination creates a cache entry
+- User-specific tags increase memory usage
+- Trade-off: memory vs performance
+
+### Invalidation Frequency
+- Too frequent = cache miss rate increases
+- Too infrequent = stale data shown
+- Monitor and adjust based on usage
+
+## Summary
+
+✅ Use user-specific cache tags for team features
+✅ Shorter cache lifetimes for collaboration data
+✅ Invalidate only affected caches (updateTag)
+✅ Test cache behavior with multiple users
+✅ Balance performance vs freshness
+
+**Remember:** In team collaboration, getting caching wrong means:
+- Users see stale data (bad UX)
+- Permission issues (security risk)
+- Unnecessary API calls (performance hit)
+
+Get it right, and your users get instant updates with minimal server load!
+EOF
+
+cat CACHING-STRATEGY.md
+```
+
+<details>
+<summary>📖 <strong>Quick Reference: Cache Tags by Operation</strong></summary>
+
+### Invite Member
+```typescript
+updateTag('team-members');
+updateTag(`project-${projectId}-members`);
+updateTag(`user-${newMemberId}-teams`);
+updateTag(`user-${newMemberId}-permissions`);
+```
+
+### Update Role
+```typescript
+updateTag(`project-${projectId}-members`);
+updateTag(`user-${userId}-permissions`);
+```
+
+### Remove Member
+```typescript
+updateTag('team-members');
+updateTag(`project-${projectId}-members`);
+updateTag(`user-${userId}-teams`);
+updateTag(`user-${userId}-permissions`);
+```
+
+### View Members
+```typescript
+cacheLife('minutes');
+cacheTag('team-members');
+cacheTag(`project-${projectId}-members`);
+```
+
+### Check Permissions
+```typescript
+cacheLife('minutes');
+cacheTag(`project-${projectId}-members`);
+cacheTag(`user-${userId}-permissions`);
+```
+
+</details>
+
+---
+
 ## ✅ 3. VERIFY
 
 ### Verification Checklist
+
+**🎯 Step 0: Next.js 16 Configuration**
+- [ ] `next.config.js` updated with experimental cacheComponents
+- [ ] Cache lifetimes configured (seconds, minutes, hours)
+- [ ] Config file verified and compiles
 
 **🎯 Step 1: Add Member Constants**
 - [ ] MEMBER_ROLES verified/added to `src/constants/index.ts`
@@ -1587,9 +2001,15 @@ npx tsc --noEmit 'src/app/dashboard/projects/[id]/members/page.tsx'
 - [ ] Permission helper functions implemented
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 5: Server Actions**
+**🎯 Step 5: Server Actions with Cache Components**
 - [ ] `src/lib/actions/members.ts` created
-- [ ] `use cache` directive on read functions
+- [ ] `'use cache'` directive on read functions
+- [ ] `cacheLife()` specified for each cached function
+- [ ] `cacheTag()` used with user-specific tags
+- [ ] `updateTag()` used instead of `revalidatePath`
+- [ ] User-specific cache tags: `user-${userId}-teams`, `user-${userId}-permissions`
+- [ ] Project-specific tags: `project-${projectId}-members`
+- [ ] Global tags: `team-members`
 - [ ] All error messages use constants
 - [ ] TypeScript compiles without errors
 
@@ -1600,10 +2020,18 @@ npx tsc --noEmit 'src/app/dashboard/projects/[id]/members/page.tsx'
 - [ ] All components use constants
 - [ ] TypeScript compiles without errors
 
-**🎯 Step 7: Pages**
+**🎯 Step 7: Pages with Suspense**
 - [ ] Members page created at `[id]/members/page.tsx`
+- [ ] `<Suspense>` boundaries implemented
+- [ ] Skeleton loaders created
 - [ ] Permission checks implemented
 - [ ] TypeScript compiles without errors
+
+**🎯 Step 8: Caching Strategy**
+- [ ] Understand cache tag hierarchy (global, project, user)
+- [ ] Understand cache lifetimes (seconds, minutes, hours)
+- [ ] Understand invalidation patterns (cascade, surgical, user-specific)
+- [ ] Know when to use updateTag vs revalidatePath
 
 ### Manual Testing
 
@@ -1669,6 +2097,27 @@ grep -r "hasPermission\|canManageMembers" src/
 - Client shows/hides UI based on role
 - Server validates all actions
 
+✅ **Next.js 16 Cache Components for Teams**
+- `'use cache'` directive with user-specific tags
+- `cacheLife('minutes')` for real-time collaboration data
+- `cacheLife('hours')` for infrequent changes
+- User-specific tags: `user-${userId}-teams`, `user-${userId}-permissions`
+- Project-specific tags: `project-${projectId}-members`
+- Global tags: `team-members`
+
+✅ **Multi-User Caching Strategy**
+- User isolation with specific cache tags
+- Cascade invalidation for member operations
+- Surgical invalidation for role changes
+- `updateTag()` instead of `revalidatePath()` for granular control
+- Balance between performance and data freshness
+
+✅ **Suspense Boundaries**
+- Wrap async components in `<Suspense>`
+- Skeleton loaders for better UX
+- Streaming for faster initial page loads
+- Progressive enhancement
+
 ✅ **RPC Functions for M:N**
 - Join queries across multiple tables
 - Return aggregated data
@@ -1690,27 +2139,34 @@ grep -r "hasPermission\|canManageMembers" src/
 ### File Organization
 
 ```
-src/
-├── constants/
-│   └── index.ts              ← Roles, permissions, messages
-├── utils/
-│   └── permissions.ts        ← Permission helpers
-├── lib/
-│   ├── actions/
-│   │   └── members.ts        ← Member CRUD (with cache)
-│   ├── validations/
-│   │   └── member.ts         ← Zod schemas
-│   └── types/
-│       └── database.ts       ← Member types
-├── components/
-│   └── features/members/
-│       ├── MemberCard.tsx    ← Display one member
-│       ├── MemberList.tsx    ← Display list with actions
-│       └── InviteMemberForm.tsx  ← Invite form
-└── app/
-    └── dashboard/projects/[id]/members/
-        └── page.tsx          ← Members page (Server Component)
+📁 Project Root
+├── next.config.js            ← Cache Components configuration
+└── src/
+    ├── constants/
+    │   └── index.ts          ← Roles, permissions, messages
+    ├── utils/
+    │   └── permissions.ts    ← Permission helpers
+    ├── lib/
+    │   ├── actions/
+    │   │   └── members.ts    ← Member CRUD (Cache Components + updateTag)
+    │   ├── validations/
+    │   │   └── member.ts     ← Zod schemas
+    │   └── types/
+    │       └── database.ts   ← Member types
+    ├── components/
+    │   └── features/members/
+    │       ├── MemberCard.tsx           ← Display one member
+    │       ├── MemberList.tsx           ← Display list with actions
+    │       └── InviteMemberForm.tsx     ← Invite form
+    └── app/
+        └── dashboard/projects/[id]/members/
+            └── page.tsx                 ← Members page (Suspense + Cache)
 ```
+
+**Key Cache Component Files:**
+- `next.config.js` - Enables experimental cacheComponents
+- `members.ts` - Uses `'use cache'`, `cacheLife()`, `cacheTag()`, `updateTag()`
+- `page.tsx` - Uses `<Suspense>` boundaries for streaming
 
 ### Next Steps
 
@@ -1720,8 +2176,12 @@ With Lesson 6 complete, you now have:
 - ✅ Member management (invite, remove, update roles)
 - ✅ Permission system
 - ✅ Team collaboration features
+- ✅ Next.js 16 Cache Components with user-specific caching
+- ✅ Multi-user caching strategy for real-time collaboration
+- ✅ Granular cache invalidation with updateTag
+- ✅ Suspense boundaries with skeleton loaders
 
-**Technologies:** Many-to-Many, RLS, RPC Functions, RBAC, Zod, TypeScript
+**Technologies:** Many-to-Many, RLS, RPC Functions, RBAC, Cache Components, User-Specific Caching, Suspense, Zod, TypeScript
 
 ---
 

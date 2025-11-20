@@ -66,7 +66,38 @@ prj_project_attachments
 
 ---
 
-## Step 1: Create Database Migration for Attachments
+## Step 1: Configure Next.js for Cache Components
+
+Update your `next.config.js` to enable Cache Components:
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    // Enable Next.js 16 Cache Components
+    cacheComponents: true,
+
+    // Optional: Configure cache handlers
+    cacheHandlers: {
+      // Custom cache configuration if needed
+    },
+  },
+};
+
+module.exports = nextConfig;
+```
+
+**Why Cache Components?**
+
+File attachments are perfect candidates for caching because:
+- File listings don't change frequently
+- Metadata queries can be expensive with many attachments
+- Signed URLs can be cached with their expiration time
+- Cache invalidation is predictable (only on upload/delete)
+
+---
+
+## Step 2: Create Database Migration for Attachments
 
 Create a new migration for attachment tables:
 
@@ -287,7 +318,7 @@ supabase db push
 
 ---
 
-## Step 2: Create Storage Buckets in Supabase Dashboard
+## Step 3: Create Storage Buckets in Supabase Dashboard
 
 **🎯 Manual Steps (Supabase Dashboard):**
 
@@ -367,7 +398,7 @@ USING (
 
 ---
 
-## Step 3: Extend Constants
+## Step 4: Extend Constants
 
 Add file upload constants to `src/constants/index.ts`:
 
@@ -434,7 +465,7 @@ EOF
 
 ---
 
-## Step 4: Create Storage Types
+## Step 5: Create Storage Types
 
 Create TypeScript types for storage:
 
@@ -483,7 +514,7 @@ EOF
 
 ---
 
-## Step 5: Create File Upload Utilities
+## Step 6: Create File Upload Utilities
 
 Create utility functions for file validation and processing:
 
@@ -585,16 +616,16 @@ EOF
 
 ---
 
-## Step 6: Create Storage Server Actions
+## Step 7: Create Storage Server Actions
 
-Create Server Actions for file operations:
+Create Server Actions for file operations with cache invalidation:
 
 ```bash
 cat > src/lib/actions/storage.ts << 'EOF'
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { revalidatePath } from 'next/cache';
+import { updateTag } from 'next/cache';
 import { STORAGE_BUCKETS, DB_TABLES, ROUTES } from '@/constants';
 import { generateFilePath, formatFileSize } from '@/utils/storage/fileValidation';
 import type { StorageUploadResponse } from '@/types/storage';
@@ -697,7 +728,9 @@ export async function uploadProjectAttachment(projectId: string, formData: FormD
       return { success: false, error: error.message };
     }
 
-    revalidatePath(`${ROUTES.DASHBOARD_PROJECTS}/${projectId}`);
+    // Invalidate cache tags
+    updateTag('attachments');
+    updateTag(`project-${projectId}-attachments`);
 
     return { success: true, data };
   } catch (error: any) {
@@ -767,7 +800,7 @@ export async function deleteProjectAttachment(attachmentId: string, projectId: s
     // Get attachment details
     const { data: attachment, error: fetchError } = await supabase
       .from(DB_TABLES.PROJECT_ATTACHMENTS)
-      .select('file_path')
+      .select('file_path, file_size')
       .eq('id', attachmentId)
       .single();
 
@@ -796,7 +829,9 @@ export async function deleteProjectAttachment(attachmentId: string, projectId: s
       return { success: false, error: dbError.message };
     }
 
-    revalidatePath(`${ROUTES.DASHBOARD_PROJECTS}/${projectId}`);
+    // Invalidate cache tags
+    updateTag('attachments');
+    updateTag(`project-${projectId}-attachments`);
 
     return { success: true };
   } catch (error: any) {
@@ -832,7 +867,7 @@ EOF
 
 ---
 
-## Step 7: Create File Upload Component
+## Step 8: Create File Upload Component
 
 Create a reusable file upload component with progress tracking:
 
@@ -1015,7 +1050,7 @@ EOF
 
 ---
 
-## Step 8: Create Attachment List Component
+## Step 9: Create Attachment List Component
 
 Create a component to display uploaded attachments:
 
@@ -1177,17 +1212,82 @@ EOF
 
 ---
 
-## Step 9: Create Project Attachments Page
+## Step 10: Create Cached Attachment Components
 
-Create a page to manage project attachments:
+Create cached Server Components for displaying attachments:
+
+```bash
+cat > src/components/features/attachments/ProjectAttachmentsServer.tsx << 'EOF'
+import { getProjectAttachments } from '@/lib/actions/storage';
+import { AttachmentList } from './AttachmentList';
+import { Suspense } from 'react';
+
+type ProjectAttachmentsProps = {
+  projectId: string;
+};
+
+/**
+ * Cached attachment listing component
+ * Files don't change frequently, so we cache for 1 hour
+ */
+async function ProjectAttachmentsCached({ projectId }: ProjectAttachmentsProps) {
+  'use cache';
+  cacheLife('hours'); // Files don't change frequently
+  cacheTag('attachments');
+  cacheTag(`project-${projectId}-attachments`);
+
+  const result = await getProjectAttachments(projectId);
+  const attachments = result.success ? result.data || [] : [];
+
+  return <AttachmentList projectId={projectId} attachments={attachments} />;
+}
+
+/**
+ * Attachment loading skeleton
+ */
+function AttachmentsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="border rounded-lg p-4 space-y-3 animate-pulse">
+          <div className="h-40 bg-gray-200 rounded-md" />
+          <div className="space-y-2">
+            <div className="h-4 bg-gray-200 rounded w-3/4" />
+            <div className="h-3 bg-gray-200 rounded w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Server Component with Suspense boundary
+ */
+export async function ProjectAttachmentsServer({ projectId }: ProjectAttachmentsProps) {
+  return (
+    <Suspense fallback={<AttachmentsSkeleton />}>
+      <ProjectAttachmentsCached projectId={projectId} />
+    </Suspense>
+  );
+}
+
+EOF
+```
+
+---
+
+## Step 11: Create Project Attachments Page
+
+Create a page to manage project attachments with caching:
 
 ```bash
 cat > src/app/dashboard/projects/[id]/attachments/page.tsx << 'EOF'
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getProject } from '@/lib/actions/projects';
-import { getProjectAttachments } from '@/lib/actions/storage';
 import { ProjectAttachmentsClient } from '@/components/features/attachments/ProjectAttachmentsClient';
+import { ProjectAttachmentsServer } from '@/components/features/attachments/ProjectAttachmentsServer';
 import { ROUTES } from '@/constants';
 import Link from 'next/link';
 
@@ -1197,6 +1297,11 @@ type ProjectAttachmentsPageProps = {
 
 /**
  * Project attachments page - Server Component
+ *
+ * Caching Strategy:
+ * - Project data: Cached via getProject action
+ * - Attachments list: Cached via ProjectAttachmentsServer component
+ * - Upload/Delete: Invalidates cache using updateTag()
  */
 export default async function ProjectAttachmentsPage({ params }: ProjectAttachmentsPageProps) {
   const { id: projectId } = await params;
@@ -1206,18 +1311,14 @@ export default async function ProjectAttachmentsPage({ params }: ProjectAttachme
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(ROUTES.LOGIN);
 
-  // Fetch project and attachments
-  const [projectResult, attachmentsResult] = await Promise.all([
-    getProject(projectId),
-    getProjectAttachments(projectId),
-  ]);
+  // Fetch project (cached)
+  const projectResult = await getProject(projectId);
 
   if (!projectResult.success || !projectResult.data) {
     redirect(ROUTES.DASHBOARD_PROJECTS);
   }
 
   const project = projectResult.data;
-  const attachments = attachmentsResult.success ? attachmentsResult.data || [] : [];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -1225,7 +1326,9 @@ export default async function ProjectAttachmentsPage({ params }: ProjectAttachme
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">{project.name} - Attachments</h1>
-          <p className="text-gray-600">{attachments.length} files uploaded</p>
+          <p className="text-gray-500 text-sm mt-1">
+            Manage project files and attachments
+          </p>
         </div>
 
         <Link
@@ -1236,8 +1339,14 @@ export default async function ProjectAttachmentsPage({ params }: ProjectAttachme
         </Link>
       </div>
 
-      {/* Client Component with Upload and List */}
-      <ProjectAttachmentsClient projectId={projectId} initialAttachments={attachments} />
+      {/* Upload Section (Client Component) */}
+      <ProjectAttachmentsClient projectId={projectId} />
+
+      {/* Attachments List (Cached Server Component) */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Uploaded Files</h2>
+        <ProjectAttachmentsServer projectId={projectId} />
+      </div>
     </div>
   );
 }
@@ -1245,67 +1354,49 @@ export default async function ProjectAttachmentsPage({ params }: ProjectAttachme
 EOF
 ```
 
-Create the client component:
+Create the client component to work with cached data:
 
 ```bash
 cat > src/components/features/attachments/ProjectAttachmentsClient.tsx << 'EOF'
 'use client';
 
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { uploadProjectAttachment } from '@/lib/actions/storage';
 import { FileUpload } from '@/components/ui/FileUpload';
-import { AttachmentList } from './AttachmentList';
 import { FILE_UPLOAD } from '@/constants';
-import type { ProjectAttachment } from '@/types/storage';
 
 type ProjectAttachmentsClientProps = {
   projectId: string;
-  initialAttachments: ProjectAttachment[];
 };
 
-export function ProjectAttachmentsClient({
-  projectId,
-  initialAttachments,
-}: ProjectAttachmentsClientProps) {
-  const [attachments, setAttachments] = useState(initialAttachments);
+/**
+ * Client component for file upload
+ * After upload, cache is automatically invalidated via updateTag()
+ */
+export function ProjectAttachmentsClient({ projectId }: ProjectAttachmentsClientProps) {
+  const router = useRouter();
 
   const handleUpload = async (formData: FormData) => {
     const result = await uploadProjectAttachment(projectId, formData);
 
-    if (result.success && result.data) {
-      setAttachments((prev) => [result.data as ProjectAttachment, ...prev]);
+    if (result.success) {
+      // Cache is automatically invalidated via updateTag() in the server action
+      // Router refresh will fetch the updated cached data
+      router.refresh();
     }
 
     return result;
   };
 
-  const handleDelete = () => {
-    // Refresh attachments list from server
-    window.location.reload();
-  };
-
   return (
-    <div className="space-y-8">
-      {/* Upload Section */}
-      <div className="border rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">Upload Files</h2>
-        <FileUpload
-          onUpload={handleUpload}
-          accept={FILE_UPLOAD.ALLOWED_IMAGE_TYPES.join(',')}
-          multiple
-          maxFiles={FILE_UPLOAD.MAX_FILES_PER_UPLOAD}
-        />
-      </div>
-
-      {/* Attachments List */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Uploaded Files</h2>
-        <AttachmentList
-          projectId={projectId}
-          attachments={attachments}
-          onDelete={handleDelete}
-        />
-      </div>
+    <div className="border rounded-lg p-6">
+      <h2 className="text-xl font-semibold mb-4">Upload Files</h2>
+      <FileUpload
+        onUpload={handleUpload}
+        accept={FILE_UPLOAD.ALLOWED_IMAGE_TYPES.join(',')}
+        multiple
+        maxFiles={FILE_UPLOAD.MAX_FILES_PER_UPLOAD}
+      />
     </div>
   );
 }
@@ -1315,7 +1406,326 @@ EOF
 
 ---
 
-## Step 10: Add Attachments Link to Project Page
+## Step 12: Update AttachmentList Component for Cache Invalidation
+
+Update the AttachmentList component to work with cache invalidation:
+
+```bash
+cat > src/components/features/attachments/AttachmentList.tsx << 'EOF'
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { getSignedUrl, deleteProjectAttachment } from '@/lib/actions/storage';
+import { formatFileSize, getFileCategory } from '@/utils/storage/fileValidation';
+import { FILE_CATEGORIES, STORAGE_BUCKETS } from '@/constants';
+import type { ProjectAttachment } from '@/types/storage';
+
+type AttachmentListProps = {
+  projectId: string;
+  attachments: ProjectAttachment[];
+};
+
+type AttachmentWithUrl = ProjectAttachment & {
+  signedUrl?: string;
+  isImage?: boolean;
+};
+
+/**
+ * Component to display project attachments with preview and download
+ * Works with cached data - invalidates cache on delete
+ */
+export function AttachmentList({ projectId, attachments }: AttachmentListProps) {
+  const router = useRouter();
+  const [attachmentsWithUrls, setAttachmentsWithUrls] = useState<AttachmentWithUrl[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSignedUrls = async () => {
+      setLoading(true);
+
+      const withUrls = await Promise.all(
+        attachments.map(async (attachment) => {
+          const result = await getSignedUrl(
+            STORAGE_BUCKETS.PROJECT_ATTACHMENTS,
+            attachment.file_path
+          );
+
+          const category = getFileCategory(attachment.mime_type);
+          const isImage = category === FILE_CATEGORIES.IMAGE;
+
+          return {
+            ...attachment,
+            signedUrl: result.success ? result.data?.signedUrl : undefined,
+            isImage,
+          };
+        })
+      );
+
+      setAttachmentsWithUrls(withUrls);
+      setLoading(false);
+    };
+
+    fetchSignedUrls();
+  }, [attachments]);
+
+  const handleDelete = async (attachmentId: string) => {
+    if (!confirm('Are you sure you want to delete this file?')) return;
+
+    const result = await deleteProjectAttachment(attachmentId, projectId);
+
+    if (result.success) {
+      // Cache is automatically invalidated via updateTag() in the server action
+      // Router refresh will fetch the updated cached data
+      router.refresh();
+    } else {
+      alert('Failed to delete attachment: ' + result.error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="text-center py-12">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <p className="text-gray-500 mt-2">Loading attachments...</p>
+      </div>
+    );
+  }
+
+  if (attachmentsWithUrls.length === 0) {
+    return (
+      <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed">
+        <svg
+          className="mx-auto h-12 w-12 text-gray-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+          />
+        </svg>
+        <p className="mt-2 text-sm text-gray-500">No attachments yet</p>
+        <p className="text-xs text-gray-400">Upload files to get started</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {attachmentsWithUrls.map((attachment) => (
+        <div
+          key={attachment.id}
+          className="border rounded-lg p-4 space-y-3 hover:shadow-md transition-shadow"
+        >
+          {/* Image Preview */}
+          {attachment.isImage && attachment.signedUrl && (
+            <div className="relative h-40 bg-gray-100 rounded-md overflow-hidden">
+              <img
+                src={attachment.signedUrl}
+                alt={attachment.file_name}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+
+          {/* File Icon for non-images */}
+          {!attachment.isImage && (
+            <div className="h-40 bg-gray-100 rounded-md flex items-center justify-center">
+              <svg
+                className="w-16 h-16 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                />
+              </svg>
+            </div>
+          )}
+
+          {/* File Info */}
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900 truncate" title={attachment.file_name}>
+              {attachment.file_name}
+            </p>
+            <p className="text-xs text-gray-500">
+              {formatFileSize(Number(attachment.file_size))}
+            </p>
+            <p className="text-xs text-gray-400">
+              {new Date(attachment.created_at).toLocaleDateString()}
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            {attachment.signedUrl && (
+              <a
+                href={attachment.signedUrl}
+                download={attachment.file_name}
+                className="flex-1 px-3 py-2 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 text-center"
+              >
+                Download
+              </a>
+            )}
+            <button
+              onClick={() => handleDelete(attachment.id)}
+              className="px-3 py-2 text-xs bg-red-100 text-red-700 rounded-md hover:bg-red-200"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+EOF
+```
+
+---
+
+## Step 13: Understanding File Caching Strategy
+
+### Why Cache File Listings?
+
+File attachments are ideal for caching because:
+
+1. **Infrequent Changes**
+   - Files are uploaded occasionally, not every second
+   - Once uploaded, file metadata rarely changes
+   - File deletions are infrequent
+
+2. **Expensive Queries**
+   - Joining attachments with user data (uploader info)
+   - Fetching signed URLs for each file
+   - Querying across multiple tables (attachments, users, projects)
+
+3. **Predictable Invalidation**
+   - Only need to invalidate on upload or delete
+   - No complex dependency tracking required
+
+### Cache Configuration for Files
+
+```typescript
+// In ProjectAttachmentsCached component
+'use cache'
+cacheLife('hours')  // Files don't change frequently - cache for 1 hour
+cacheTag('attachments')  // Global attachment tag
+cacheTag(`project-${projectId}-attachments`)  // Project-specific tag
+```
+
+**Cache Duration:**
+- `cacheLife('hours')` - Files are cached for 1 hour
+- Longer than other data (projects, tasks) because files change less frequently
+- Automatically revalidated when tags are invalidated
+
+**Cache Tags:**
+- `attachments` - Global tag for all attachments
+- `project-${projectId}-attachments` - Specific to one project
+- Allows targeted invalidation without affecting other projects
+
+### Cache Invalidation Pattern
+
+```typescript
+// In uploadProjectAttachment() and deleteProjectAttachment()
+updateTag('attachments')  // Invalidate all attachment caches
+updateTag(`project-${projectId}-attachments`)  // Invalidate this project's cache
+```
+
+**Why Two Tags?**
+- `attachments` - Use when you need to invalidate all attachment data globally
+- `project-${projectId}-attachments` - More targeted, only invalidates one project's cache
+- Other projects' caches remain valid, improving performance
+
+### Signed URLs and Caching
+
+**Important Consideration:**
+
+Signed URLs have an expiration time (default: 1 hour). This aligns perfectly with our cache duration:
+
+```typescript
+// In getSignedUrl()
+const expiresIn = 3600; // 1 hour (matches cache duration)
+```
+
+**Why This Matters:**
+- Cache expires when signed URLs expire
+- No stale URL issues - fresh URLs are generated when cache refreshes
+- Users always get valid download links
+
+### Cache vs. No Cache Performance
+
+**Without Caching:**
+```
+User visits attachments page
+→ Query database for attachments
+→ Join with users table for uploader info
+→ Generate 10 signed URLs (10 API calls to Supabase Storage)
+→ Total time: ~500-1000ms
+```
+
+**With Caching:**
+```
+First visit: ~500-1000ms (cache miss, same as above)
+Next 59 minutes: ~50ms (cache hit, no database queries)
+After 1 hour: ~500-1000ms (cache expired, refresh)
+```
+
+**Cache Invalidation:**
+```
+User uploads file
+→ updateTag() called
+→ Cache invalidated immediately
+→ Next request fetches fresh data
+→ New cache entry created
+```
+
+### Best Practices for File Caching
+
+1. **Match Cache Duration with Signed URL Expiration**
+   ```typescript
+   cacheLife('hours') // 1 hour
+   expiresIn: 3600    // 1 hour in seconds
+   ```
+
+2. **Use Specific Cache Tags**
+   ```typescript
+   cacheTag(`project-${projectId}-attachments`)  // Good - specific
+   cacheTag('all-data')  // Bad - too broad
+   ```
+
+3. **Invalidate Immediately After Mutations**
+   ```typescript
+   // After upload/delete
+   updateTag('attachments')
+   updateTag(`project-${projectId}-attachments`)
+   ```
+
+4. **Wrap Cached Components in Suspense**
+   ```typescript
+   <Suspense fallback={<AttachmentsSkeleton />}>
+     <ProjectAttachmentsCached projectId={projectId} />
+   </Suspense>
+   ```
+
+5. **Use Router.refresh() After Mutations**
+   ```typescript
+   // In client component after upload/delete
+   router.refresh() // Fetches updated cached data
+   ```
+
+---
+
+## Step 14: Add Attachments Link to Project Page
 
 Update your project page to include a link to attachments:
 
@@ -1326,7 +1736,7 @@ Update your project page to include a link to attachments:
   href={`${ROUTES.DASHBOARD_PROJECTS}/${projectId}/attachments`}
   className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
 >
-  View Attachments ({attachmentCount})
+  View Attachments
 </Link>
 ```
 
@@ -1386,6 +1796,41 @@ Update your project page to include a link to attachments:
 3. Click a file
 4. **Expected:** Can preview image or download file ✅
 
+### 7. Verify Cache Behavior
+
+**Cache Testing:**
+1. Upload a file to project attachments
+2. Open browser DevTools → Network tab
+3. Navigate to attachments page
+4. **Expected:** Database queries execute (cache miss) ✅
+5. Refresh page within 1 minute
+6. **Expected:** No database queries (cache hit) ✅
+7. Upload another file
+8. **Expected:** New file appears immediately (cache invalidated) ✅
+
+**Cache Tags:**
+1. Check server logs for cache operations
+2. **Expected:** See `updateTag('attachments')` after upload ✅
+3. **Expected:** See `updateTag('project-${projectId}-attachments')` ✅
+
+### 8. Verify Suspense Boundaries
+
+**Loading States:**
+1. Navigate to attachments page with slow network (throttle in DevTools)
+2. **Expected:** AttachmentsSkeleton appears during loading ✅
+3. **Expected:** Smooth transition to actual content ✅
+
+### 9. Verify Cache Component Configuration
+
+**Next.js Config:**
+1. Check `next.config.js` has `experimental.cacheComponents: true`
+2. **Expected:** Cache Components are enabled ✅
+
+**Server Components:**
+1. Check ProjectAttachmentsServer.tsx has `'use cache'` directive
+2. **Expected:** `cacheLife('hours')` is set ✅
+3. **Expected:** Cache tags are defined ✅
+
 ---
 
 ## What You Learned
@@ -1396,10 +1841,32 @@ Update your project page to include a link to attachments:
 ✅ **File Validation** - Size, type, count validation
 ✅ **Progress Tracking** - Real-time upload progress
 ✅ **Image Previews** - Display thumbnails for images
-✅ **Server Actions** - File upload with FormData
+✅ **Server Actions** - File upload with FormData and cache invalidation
 ✅ **Database Integration** - Link files to projects/tasks
 ✅ **Security** - RLS applies to both database and storage
 ✅ **Type Safety** - TypeScript for file operations
+✅ **Cache Components (Next.js 16)** - Cache file listings with `'use cache'`
+✅ **Cache Invalidation** - `updateTag()` for targeted cache invalidation
+✅ **Cache Strategy** - Match cache duration with signed URL expiration
+✅ **Suspense Boundaries** - Loading states for cached components
+✅ **Performance Optimization** - Reduce database queries with caching
+
+### File Caching Strategy Summary
+
+**Cached Components:**
+- File listings cached for 1 hour with `cacheLife('hours')`
+- Matches signed URL expiration time
+- Tagged with `'attachments'` and `'project-${projectId}-attachments'`
+
+**Cache Invalidation:**
+- Upload: `updateTag('attachments')` + `updateTag('project-${projectId}-attachments')`
+- Delete: Same invalidation pattern
+- Automatic cache refresh on router.refresh()
+
+**Performance Impact:**
+- First load: ~500-1000ms (database queries + signed URLs)
+- Cached loads: ~50ms (no database queries)
+- Cache duration: 1 hour (automatically refreshed)
 
 ---
 
@@ -1421,15 +1888,17 @@ Update your project page to include a link to attachments:
 ## Reference
 
 **Files Created:**
+- `next.config.js` - Next.js configuration with Cache Components (UPDATED)
 - `supabase/migrations/005_attachments.sql` - Attachment tables and RLS
 - `src/constants/index.ts` - Storage constants (EXTENDED)
 - `src/types/storage.ts` - TypeScript types for storage
 - `src/utils/storage/fileValidation.ts` - File validation utilities
-- `src/lib/actions/storage.ts` - Storage Server Actions
+- `src/lib/actions/storage.ts` - Storage Server Actions with cache invalidation
 - `src/components/ui/FileUpload.tsx` - File upload component
-- `src/components/features/attachments/AttachmentList.tsx` - Attachments list
-- `src/components/features/attachments/ProjectAttachmentsClient.tsx` - Client component
-- `src/app/dashboard/projects/[id]/attachments/page.tsx` - Attachments page
+- `src/components/features/attachments/AttachmentList.tsx` - Attachments list with cache refresh
+- `src/components/features/attachments/ProjectAttachmentsServer.tsx` - Cached Server Component
+- `src/components/features/attachments/ProjectAttachmentsClient.tsx` - Upload client component
+- `src/app/dashboard/projects/[id]/attachments/page.tsx` - Attachments page with caching
 
 **Key Concepts:**
 - Object storage (S3-compatible)
@@ -1438,5 +1907,12 @@ Update your project page to include a link to attachments:
 - FormData uploads
 - File metadata tracking
 - Cascading deletes
+- **Cache Components (`'use cache'`, `cacheLife()`, `cacheTag()`)**
+- **Cache invalidation (`updateTag()`)**
+- **Suspense boundaries for cached components**
+- **Router-based cache refresh**
 
-**Supabase Storage Docs:** https://supabase.com/docs/guides/storage
+**Documentation:**
+- Supabase Storage: https://supabase.com/docs/guides/storage
+- Next.js 16 Cache Components: https://nextjs.org/docs/app/api-reference/directives/use-cache
+- Cache Invalidation: https://nextjs.org/docs/app/api-reference/functions/revalidateTag

@@ -89,7 +89,62 @@ In this lesson, you'll implement a **complete monitoring and observability syste
 
 ---
 
-## Step 1: Install Monitoring Dependencies
+## Step 1: Configure Next.js 16 Cache Components
+
+### 1.1 Update next.config.js
+
+Add experimental Cache Components configuration to enable caching for monitoring dashboards:
+
+```bash
+cat > next.config.js << 'EOF'
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    // Enable Cache Components for monitoring dashboards
+    cacheComponents: true,
+
+    // Cache lifecycle defaults
+    cacheLife: {
+      // Very short cache for monitoring data (30-60 seconds)
+      seconds: {
+        stale: 30,   // Consider stale after 30 seconds
+        revalidate: 60, // Revalidate every 60 seconds
+        expire: 120, // Expire after 2 minutes
+      },
+
+      // Default for other data
+      default: {
+        stale: 900,    // 15 minutes
+        revalidate: 3600, // 1 hour
+        expire: 86400, // 1 day
+      },
+    },
+  },
+
+  // Existing Next.js configuration...
+};
+
+module.exports = nextConfig;
+EOF
+```
+
+**Why Cache Components for Monitoring?**
+
+Monitoring dashboards often display expensive aggregation queries that are:
+- ✅ **Read-heavy** - Metrics are queried frequently by dashboards
+- ✅ **Near-real-time** - Need fresh data but don't require instant updates
+- ✅ **Cacheable** - Same data for all admins viewing the dashboard
+- ✅ **Performance-critical** - Aggregations can be slow without caching
+
+**Cache Strategy:**
+- Use `cacheLife('seconds')` for **30-60 second** cache duration
+- Balance between real-time visibility and performance
+- Invalidate cache when new metrics are recorded
+- Cache expensive aggregation queries, not individual metric writes
+
+---
+
+## Step 2: Install Monitoring Dependencies
 
 ```bash
 # Core monitoring packages
@@ -103,15 +158,15 @@ npm install -D @types/winston
 
 ---
 
-## Step 2: Configure Sentry Error Tracking
+## Step 3: Configure Sentry Error Tracking
 
-### 2.1 Setup Sentry Account
+### 3.1 Setup Sentry Account
 
 1. Go to https://sentry.io and create account
 2. Create a new project → Select "Next.js"
 3. Copy your DSN (Data Source Name)
 
-### 2.2 Initialize Sentry
+### 3.2 Initialize Sentry
 
 ```bash
 npx @sentry/wizard@latest -i nextjs
@@ -122,7 +177,7 @@ This creates:
 - `sentry.server.config.ts`
 - `sentry.edge.config.ts`
 
-### 2.3 Configure Sentry with Context
+### 3.3 Configure Sentry with Context
 
 ```bash
 cat > sentry.server.config.ts << 'EOF'
@@ -203,7 +258,7 @@ EOF
 
 ---
 
-## Step 3: Create Structured Logging System
+## Step 4: Create Structured Logging System
 
 ```bash
 mkdir -p src/lib/monitoring
@@ -315,9 +370,9 @@ EOF
 
 ---
 
-## Step 4: Create Health Check System
+## Step 5: Create Health Check System
 
-### 4.1 Base Health Check Interface
+### 5.1 Base Health Check Interface
 
 ```bash
 cat > src/lib/monitoring/healthCheck.ts << 'EOF'
@@ -396,7 +451,7 @@ export async function runHealthChecks(
 EOF
 ```
 
-### 4.2 Database Health Check
+### 5.2 Database Health Check
 
 ```bash
 cat > src/lib/monitoring/checks/database.ts << 'EOF'
@@ -453,7 +508,7 @@ export const databaseHealthCheck: HealthChecker = {
 EOF
 ```
 
-### 4.3 Authentication Health Check
+### 5.3 Authentication Health Check
 
 ```bash
 cat > src/lib/monitoring/checks/auth.ts << 'EOF'
@@ -505,7 +560,7 @@ export const authHealthCheck: HealthChecker = {
 EOF
 ```
 
-### 4.4 Stripe Payment Health Check
+### 5.4 Stripe Payment Health Check
 
 ```bash
 cat > src/lib/monitoring/checks/payments.ts << 'EOF'
@@ -551,7 +606,7 @@ export const paymentsHealthCheck: HealthChecker = {
 EOF
 ```
 
-### 4.5 Storage Health Check
+### 5.5 Storage Health Check
 
 ```bash
 cat > src/lib/monitoring/checks/storage.ts << 'EOF'
@@ -616,7 +671,7 @@ export const storageHealthCheck: HealthChecker = {
 EOF
 ```
 
-### 4.6 Real-time Health Check
+### 5.6 Real-time Health Check
 
 ```bash
 cat > src/lib/monitoring/checks/realtime.ts << 'EOF'
@@ -680,11 +735,67 @@ EOF
 
 ---
 
-## Step 5: Create Health Check API Endpoint
+## Step 6: Create Health Check API Endpoint with Caching
+
+### 6.1 Create Cached Health Status Component
+
+First, create a Server Component that caches health check results:
+
+```bash
+mkdir -p src/components/features/monitoring
+cat > src/components/features/monitoring/HealthStatus.tsx << 'EOF'
+import { runHealthChecks } from '@/lib/monitoring/healthCheck';
+import { databaseHealthCheck } from '@/lib/monitoring/checks/database';
+import { authHealthCheck } from '@/lib/monitoring/checks/auth';
+import { paymentsHealthCheck } from '@/lib/monitoring/checks/payments';
+import { storageHealthCheck } from '@/lib/monitoring/checks/storage';
+import { realtimeHealthCheck } from '@/lib/monitoring/checks/realtime';
+import type { HealthCheckResult } from '@/lib/monitoring/healthCheck';
+
+/**
+ * Cached Health Status Component
+ *
+ * This Server Component caches health check results for 30-60 seconds
+ * to avoid overloading services with constant health checks while still
+ * providing near-real-time status.
+ */
+async function HealthStatus() {
+  'use cache'
+  cacheLife('seconds') // Cache for 30-60 seconds (configured in next.config.js)
+  cacheTag('health-checks')
+  cacheTag('monitoring')
+
+  const healthResult = await runHealthChecks([
+    databaseHealthCheck,
+    authHealthCheck,
+    paymentsHealthCheck,
+    storageHealthCheck,
+    realtimeHealthCheck,
+  ]);
+
+  return healthResult;
+}
+
+export default HealthStatus;
+
+EOF
+```
+
+**Why Cache Health Checks?**
+
+- ✅ **Prevents overload** - Avoids hammering services with constant health checks
+- ✅ **Near-real-time** - 30-60 second cache provides fresh data without excessive load
+- ✅ **Consistent view** - All users see the same health status in the same time window
+- ✅ **Performance** - Health checks can be slow (database queries, API calls)
+
+**Important:** Health checks should NOT cache for too long (>60 seconds) because you want to detect issues quickly.
+
+### 6.2 Create Health Check API Route
 
 ```bash
 cat > src/app/api/health/route.ts << 'EOF'
 import { NextResponse } from 'next/server';
+import { unstable_cacheTag as cacheTag, unstable_cacheLife as cacheLife } from 'next/cache';
 import { runHealthChecks } from '@/lib/monitoring/healthCheck';
 import { databaseHealthCheck } from '@/lib/monitoring/checks/database';
 import { authHealthCheck } from '@/lib/monitoring/checks/auth';
@@ -693,24 +804,33 @@ import { storageHealthCheck } from '@/lib/monitoring/checks/storage';
 import { realtimeHealthCheck } from '@/lib/monitoring/checks/realtime';
 
 /**
- * Health check endpoint
+ * Health check endpoint with caching
  * GET /api/health
+ * GET /api/health?detailed=true
  *
- * Returns detailed health status of all system components
+ * Caches results for 30-60 seconds to prevent excessive health checks
  */
+async function getHealthStatus() {
+  'use cache'
+  cacheLife('seconds') // Very short cache (30-60s) for near-real-time status
+  cacheTag('health-checks')
+
+  return await runHealthChecks([
+    databaseHealthCheck,
+    authHealthCheck,
+    paymentsHealthCheck,
+    storageHealthCheck,
+    realtimeHealthCheck,
+  ]);
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const detailed = url.searchParams.get('detailed') === 'true';
 
   try {
-    // Run all health checks
-    const healthResult = await runHealthChecks([
-      databaseHealthCheck,
-      authHealthCheck,
-      paymentsHealthCheck,
-      storageHealthCheck,
-      realtimeHealthCheck,
-    ]);
+    // Get cached health status
+    const healthResult = await getHealthStatus();
 
     // Determine HTTP status code
     const statusCode =
@@ -750,11 +870,12 @@ EOF
 
 ---
 
-## Step 6: Create Metrics Collection System
+## Step 7: Create Metrics Collection System with Cache Invalidation
 
 ```bash
 cat > src/lib/monitoring/metrics.ts << 'EOF'
 import { createClient } from '@/lib/supabase/server';
+import { updateTag } from 'next/cache';
 import { logger } from './logger';
 
 export type MetricType =
@@ -782,7 +903,12 @@ export type MetricData = {
 };
 
 /**
- * Record a metric event
+ * Record a metric event and invalidate related caches
+ *
+ * This function:
+ * 1. Stores the metric in the database
+ * 2. Logs the metric for immediate visibility
+ * 3. Invalidates cached dashboard data so new metrics show up
  */
 export async function recordMetric(data: MetricData) {
   try {
@@ -803,6 +929,18 @@ export async function recordMetric(data: MetricData) {
       value: data.value,
       userId: data.userId,
     });
+
+    // ✅ Invalidate metrics cache to show fresh data
+    // This ensures dashboards show the latest metrics
+    updateTag('metrics')
+    updateTag('metrics-dashboard')
+    updateTag('monitoring')
+
+    // Invalidate feature-specific caches
+    const [feature] = data.type.split('.')
+    if (feature) {
+      updateTag(`metrics-${feature}`)
+    }
   } catch (error) {
     // Don't let metrics fail the main operation
     logger.error('Failed to record metric', { error, data });
@@ -810,13 +948,21 @@ export async function recordMetric(data: MetricData) {
 }
 
 /**
- * Get metrics for a time period
+ * Get metrics for a time period (cached)
+ *
+ * This function caches results for 30-60 seconds to avoid
+ * expensive repeated queries for the same metrics.
  */
 export async function getMetrics(
   type: MetricType,
   startDate: Date,
   endDate: Date
 ) {
+  'use cache'
+  cacheLife('seconds') // Cache for 30-60 seconds
+  cacheTag('metrics')
+  cacheTag(`metrics-${type.split('.')[0]}`) // Feature-specific tag
+
   try {
     const supabase = await createClient();
 
@@ -838,13 +984,22 @@ export async function getMetrics(
 }
 
 /**
- * Get aggregated metrics
+ * Get aggregated metrics (cached)
+ *
+ * Aggregation queries are expensive, so we cache them for 30-60 seconds.
+ * Cache is automatically invalidated when new metrics are recorded.
  */
 export async function getMetricsAggregate(
   type: MetricType,
   startDate: Date,
   endDate: Date
 ) {
+  'use cache'
+  cacheLife('seconds') // Cache for 30-60 seconds
+  cacheTag('metrics')
+  cacheTag('metrics-dashboard')
+  cacheTag(`metrics-${type.split('.')[0]}`) // Feature-specific tag
+
   try {
     const supabase = await createClient();
 
@@ -866,7 +1021,7 @@ export async function getMetricsAggregate(
 EOF
 ```
 
-Create metrics table migration:
+### 7.1 Create Metrics Table Migration
 
 ```bash
 cat > supabase/migrations/008_metrics.sql << 'EOF'
@@ -942,9 +1097,7 @@ EOF
 
 ---
 
-(Continuing in next part due to length...)
-
-## Step 7: Instrument Authentication Monitoring
+## Step 8: Instrument Authentication Monitoring
 
 Update auth actions to include monitoring:
 
@@ -1030,7 +1183,7 @@ INNEREOF
 
 ---
 
-## Step 8: Instrument Payment Monitoring
+## Step 9: Instrument Payment Monitoring
 
 Update Stripe webhook to include monitoring:
 
@@ -1147,20 +1300,114 @@ INNEREOF
 
 ---
 
-## Step 9: Create Monitoring Dashboard API
+## Step 10: Create Cached Monitoring Dashboard Components
+
+### 10.1 Create Cached Metrics Dashboard Server Component
+
+```bash
+cat > src/components/features/monitoring/MetricsDashboard.tsx << 'EOF'
+import { getMetricsAggregate } from '@/lib/monitoring/metrics';
+
+/**
+ * Cached Metrics Dashboard Component
+ *
+ * This Server Component caches expensive aggregation queries for 30-60 seconds.
+ * Cache is automatically invalidated when new metrics are recorded via updateTag().
+ */
+async function MetricsDashboard() {
+  'use cache'
+  cacheLife('seconds') // Cache for 30-60 seconds
+  cacheTag('metrics')
+  cacheTag('metrics-dashboard')
+  cacheTag('monitoring')
+
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // All these queries are cached together
+  const [
+    authLogins,
+    authFailures,
+    projectsCreated,
+    tasksCreated,
+    paymentsSucceeded,
+    paymentsFailed,
+  ] = await Promise.all([
+    getMetricsAggregate('auth.login', yesterday, now),
+    getMetricsAggregate('auth.failure', yesterday, now),
+    getMetricsAggregate('project.create', yesterday, now),
+    getMetricsAggregate('task.create', yesterday, now),
+    getMetricsAggregate('payment.success', yesterday, now),
+    getMetricsAggregate('payment.failure', yesterday, now),
+  ]);
+
+  // Calculate rates
+  const authSuccessRate =
+    authLogins && authFailures
+      ? (authLogins.total_count /
+          (authLogins.total_count + authFailures.total_count)) *
+        100
+      : 100;
+
+  const paymentSuccessRate =
+    paymentsSucceeded && paymentsFailed
+      ? (paymentsSucceeded.total_count /
+          (paymentsSucceeded.total_count + paymentsFailed.total_count)) *
+        100
+      : 100;
+
+  return {
+    timestamp: now.toISOString(),
+    period: '24h',
+    metrics: {
+      authentication: {
+        totalLogins: authLogins?.total_count || 0,
+        totalFailures: authFailures?.total_count || 0,
+        successRate: authSuccessRate.toFixed(2) + '%',
+        uniqueUsers: authLogins?.unique_users || 0,
+      },
+      projects: {
+        totalCreated: projectsCreated?.total_count || 0,
+        uniqueUsers: projectsCreated?.unique_users || 0,
+      },
+      tasks: {
+        totalCreated: tasksCreated?.total_count || 0,
+        uniqueUsers: tasksCreated?.unique_users || 0,
+      },
+      payments: {
+        totalSuccess: paymentsSucceeded?.total_count || 0,
+        totalFailed: paymentsFailed?.total_count || 0,
+        successRate: paymentSuccessRate.toFixed(2) + '%',
+        totalRevenue: paymentsSucceeded?.total_value || 0,
+      },
+    },
+  };
+}
+
+export default MetricsDashboard;
+
+EOF
+```
+
+### 10.2 Create Monitoring Dashboard API
+
+Use the cached component in your API route:
 
 ```bash
 mkdir -p src/app/api/monitoring
 cat > src/app/api/monitoring/dashboard/route.ts << 'EOF'
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getMetricsAggregate } from '@/lib/monitoring/metrics';
+import { Suspense } from 'react';
+import MetricsDashboard from '@/components/features/monitoring/MetricsDashboard';
 
 /**
- * Monitoring dashboard data endpoint
+ * Monitoring dashboard data endpoint with caching
  * GET /api/monitoring/dashboard
  *
- * Returns aggregated metrics for the last 24 hours
+ * Returns aggregated metrics for the last 24 hours.
+ * Data is cached for 30-60 seconds via the MetricsDashboard component.
+ * Cache is automatically invalidated when new metrics are recorded.
  */
 export async function GET(request: Request) {
   try {
@@ -1172,67 +1419,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    // Use cached component - this will be fast after first request
+    const dashboardData = await MetricsDashboard();
 
-    // Fetch metrics for last 24 hours
-    const [
-      authLogins,
-      authFailures,
-      projectsCreated,
-      tasksCreated,
-      paymentsSucceeded,
-      paymentsFailed,
-    ] = await Promise.all([
-      getMetricsAggregate('auth.login', yesterday, now),
-      getMetricsAggregate('auth.failure', yesterday, now),
-      getMetricsAggregate('project.create', yesterday, now),
-      getMetricsAggregate('task.create', yesterday, now),
-      getMetricsAggregate('payment.success', yesterday, now),
-      getMetricsAggregate('payment.failure', yesterday, now),
-    ]);
-
-    // Calculate rates
-    const authSuccessRate =
-      authLogins && authFailures
-        ? (authLogins.total_count /
-            (authLogins.total_count + authFailures.total_count)) *
-          100
-        : 100;
-
-    const paymentSuccessRate =
-      paymentsSucceeded && paymentsFailed
-        ? (paymentsSucceeded.total_count /
-            (paymentsSucceeded.total_count + paymentsFailed.total_count)) *
-          100
-        : 100;
-
-    return NextResponse.json({
-      timestamp: now.toISOString(),
-      period: '24h',
-      metrics: {
-        authentication: {
-          totalLogins: authLogins?.total_count || 0,
-          totalFailures: authFailures?.total_count || 0,
-          successRate: authSuccessRate.toFixed(2) + '%',
-          uniqueUsers: authLogins?.unique_users || 0,
-        },
-        projects: {
-          totalCreated: projectsCreated?.total_count || 0,
-          uniqueUsers: projectsCreated?.unique_users || 0,
-        },
-        tasks: {
-          totalCreated: tasksCreated?.total_count || 0,
-          uniqueUsers: tasksCreated?.unique_users || 0,
-        },
-        payments: {
-          totalSuccess: paymentsSucceeded?.total_count || 0,
-          totalFailed: paymentsFailed?.total_count || 0,
-          successRate: paymentSuccessRate.toFixed(2) + '%',
-          totalRevenue: paymentsSucceeded?.total_value || 0,
-        },
-      },
-    });
+    return NextResponse.json(dashboardData);
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message },
@@ -1241,6 +1431,248 @@ export async function GET(request: Request) {
   }
 }
 
+EOF
+```
+
+### 10.3 Create Dashboard Page with Suspense
+
+Create a dashboard page that uses Suspense for loading states:
+
+```bash
+mkdir -p src/app/admin/monitoring
+cat > src/app/admin/monitoring/page.tsx << 'EOF'
+import { Suspense } from 'react';
+import MetricsDashboard from '@/components/features/monitoring/MetricsDashboard';
+import HealthStatus from '@/components/features/monitoring/HealthStatus';
+
+/**
+ * Monitoring Dashboard Page
+ *
+ * Uses Suspense boundaries to show loading states while fetching
+ * cached data. Each component can load independently.
+ */
+export default function MonitoringPage() {
+  return (
+    <div className="container mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6">System Monitoring</h1>
+
+      {/* Health Status Section */}
+      <section className="mb-8">
+        <h2 className="text-2xl font-semibold mb-4">Health Status</h2>
+        <Suspense fallback={<HealthStatusSkeleton />}>
+          <HealthStatusDisplay />
+        </Suspense>
+      </section>
+
+      {/* Metrics Dashboard Section */}
+      <section>
+        <h2 className="text-2xl font-semibold mb-4">Metrics (Last 24h)</h2>
+        <Suspense fallback={<MetricsDashboardSkeleton />}>
+          <MetricsDashboardDisplay />
+        </Suspense>
+      </section>
+    </div>
+  );
+}
+
+async function HealthStatusDisplay() {
+  const health = await HealthStatus();
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {Object.entries(health.checks).map(([name, check]) => (
+        <div
+          key={name}
+          className={`p-4 rounded-lg border ${
+            check.status === 'healthy'
+              ? 'border-green-500 bg-green-50'
+              : check.status === 'degraded'
+              ? 'border-yellow-500 bg-yellow-50'
+              : 'border-red-500 bg-red-50'
+          }`}
+        >
+          <h3 className="font-semibold capitalize">{name}</h3>
+          <p className="text-sm">{check.message}</p>
+          {check.responseTime && (
+            <p className="text-xs text-gray-600">{check.responseTime}ms</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+async function MetricsDashboardDisplay() {
+  const dashboard = await MetricsDashboard();
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Authentication */}
+      <MetricCard
+        title="Authentication"
+        metrics={[
+          { label: 'Total Logins', value: dashboard.metrics.authentication.totalLogins },
+          { label: 'Success Rate', value: dashboard.metrics.authentication.successRate },
+        ]}
+      />
+
+      {/* Payments */}
+      <MetricCard
+        title="Payments"
+        metrics={[
+          { label: 'Successful', value: dashboard.metrics.payments.totalSuccess },
+          { label: 'Revenue', value: `$${(dashboard.metrics.payments.totalRevenue / 100).toFixed(2)}` },
+        ]}
+      />
+
+      {/* Projects */}
+      <MetricCard
+        title="Projects"
+        metrics={[
+          { label: 'Created', value: dashboard.metrics.projects.totalCreated },
+          { label: 'Active Users', value: dashboard.metrics.projects.uniqueUsers },
+        ]}
+      />
+
+      {/* Tasks */}
+      <MetricCard
+        title="Tasks"
+        metrics={[
+          { label: 'Created', value: dashboard.metrics.tasks.totalCreated },
+          { label: 'Active Users', value: dashboard.metrics.tasks.uniqueUsers },
+        ]}
+      />
+    </div>
+  );
+}
+
+function MetricCard({ title, metrics }: { title: string; metrics: { label: string; value: any }[] }) {
+  return (
+    <div className="p-4 bg-white rounded-lg border">
+      <h3 className="font-semibold mb-2">{title}</h3>
+      {metrics.map((metric) => (
+        <div key={metric.label} className="flex justify-between mb-1">
+          <span className="text-sm text-gray-600">{metric.label}:</span>
+          <span className="font-medium">{metric.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HealthStatusSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="p-4 rounded-lg border bg-gray-100 animate-pulse h-24" />
+      ))}
+    </div>
+  );
+}
+
+function MetricsDashboardSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="p-4 rounded-lg border bg-gray-100 animate-pulse h-32" />
+      ))}
+    </div>
+  );
+}
+
+EOF
+```
+
+---
+
+## Step 11: Understanding Monitoring-Specific Caching Strategy
+
+### Why Monitoring Data Needs Special Caching
+
+Monitoring data has unique characteristics:
+
+**1. High Query Frequency**
+- Dashboards are refreshed frequently by admins
+- Health checks are polled every 1-5 minutes
+- Metrics aggregations are expensive database queries
+
+**2. Near-Real-Time Requirements**
+- Need fresh data to detect issues quickly
+- BUT don't need instant (<1 second) updates
+- 30-60 second staleness is acceptable
+
+**3. Expensive Aggregations**
+- Counting metrics across time ranges
+- Calculating success rates and percentages
+- Joining multiple tables for dashboard views
+
+### Cache Duration Guidelines
+
+**Very Short (30-60 seconds) - `cacheLife('seconds')`:**
+- ✅ **Health check results** - Detect issues quickly
+- ✅ **Metrics dashboards** - Show recent activity
+- ✅ **Aggregation queries** - Expensive to compute
+- ✅ **System status** - Current state of services
+
+**DO NOT Cache:**
+- ❌ **Individual metric writes** - Must be real-time
+- ❌ **Critical alerts** - Need immediate notification
+- ❌ **Real-time event streams** - WebSocket/SSE data
+- ❌ **User activity tracking** - Should be immediate
+
+### Cache Invalidation Strategy
+
+When new metrics are recorded, we selectively invalidate caches:
+
+```typescript
+// Recording a metric invalidates related caches
+await recordMetric({
+  type: 'auth.login',
+  value: 1,
+  userId: 'user-123',
+});
+
+// This automatically calls:
+updateTag('metrics')           // Invalidate all metrics
+updateTag('metrics-dashboard') // Invalidate dashboard
+updateTag('metrics-auth')      // Invalidate auth-specific metrics
+updateTag('monitoring')        // Invalidate monitoring views
+```
+
+**Tag Organization:**
+- `'metrics'` - All metrics queries
+- `'metrics-dashboard'` - Dashboard aggregations
+- `'metrics-{feature}'` - Feature-specific (auth, payment, project, etc.)
+- `'health-checks'` - Health status
+- `'monitoring'` - All monitoring views
+
+### Performance Benefits
+
+**Without caching:**
+- 10 admins checking dashboard every 30 seconds
+- Each request runs 6 aggregation queries
+- = 60 database queries per minute
+- = 3,600 queries per hour
+
+**With 60-second caching:**
+- First admin request caches results
+- Next 9 admins get cached data
+- = 6 database queries per minute
+- = 360 queries per hour
+- **90% reduction in database load!**
+
+### Balance: Real-Time vs Performance
+
+The 30-60 second cache window provides:
+- ✅ **Fast dashboard loads** - No waiting for queries
+- ✅ **Reduced database load** - 90% fewer queries
+- ✅ **Near-real-time data** - Issues detected within 1 minute
+- ✅ **Consistent views** - All users see same data in window
+- ✅ **Automatic invalidation** - Fresh data after metric writes
+
+**This is the sweet spot for monitoring dashboards!**
+
+---
 
 ## Step 12: Set Up Uptime Monitoring
 
@@ -1330,7 +1762,18 @@ INNEREOF
 
 ## Verification Steps
 
-### 1. Test Health Checks
+### 1. Verify Next.js 16 Cache Components Configuration
+
+```bash
+# Check next.config.js includes cacheComponents
+grep -A 5 "cacheComponents" next.config.js
+
+# Should see:
+# cacheComponents: true,
+# cacheLife: { seconds: { stale: 30, ... } }
+```
+
+### 2. Test Cached Health Checks
 
 ```bash
 # Test main health endpoint
@@ -1360,19 +1803,90 @@ curl http://localhost:3000/api/health?detailed=true
 }
 ```
 
-### 2. Test Metrics Collection
+**Verify Cache is Working:**
+```bash
+# Make first request (should hit database)
+time curl http://localhost:3000/api/health?detailed=true
+
+# Make second request within 60 seconds (should be cached - faster)
+time curl http://localhost:3000/api/health?detailed=true
+
+# Second request should be significantly faster (< 10ms vs 100ms+)
+```
+
+### 3. Test Metrics Collection and Cache Invalidation
 
 ```bash
+# Check initial dashboard state
+curl http://localhost:3000/api/monitoring/dashboard
+
 # Trigger some actions to generate metrics
 # 1. Login (generates auth.login metric)
 # 2. Create project (generates project.create metric)
 # 3. Make payment (generates payment.success metric)
 
-# Check dashboard
+# Check dashboard again - should show new metrics immediately
+# (cache was invalidated by recordMetric calls)
 curl http://localhost:3000/api/monitoring/dashboard
 ```
 
-### 3. Test Error Tracking
+**Verify Cache Tags:**
+```bash
+# Check that components use cache directives
+grep -r "use cache" src/components/features/monitoring/
+grep -r "cacheTag" src/components/features/monitoring/
+grep -r "cacheLife" src/components/features/monitoring/
+
+# Check that metrics functions have cache directives
+grep -r "use cache" src/lib/monitoring/metrics.ts
+```
+
+### 4. Test Suspense Boundaries
+
+Visit the monitoring dashboard page and observe loading behavior:
+
+```bash
+# Open monitoring dashboard
+open http://localhost:3000/admin/monitoring
+
+# Observe:
+# 1. Loading skeletons appear first
+# 2. Health status loads (cached after first request)
+# 3. Metrics dashboard loads (cached after first request)
+# 4. Subsequent refreshes are instant (served from cache)
+```
+
+### 5. Test Cache Refresh Intervals
+
+```bash
+# Run this script to test cache timing
+cat > scripts/test-cache-timing.sh << 'TESTEOF'
+#!/bin/bash
+
+echo "Testing cache refresh intervals..."
+echo ""
+
+for i in {1..5}; do
+  echo "Request $i ($(date +%H:%M:%S)):"
+  time curl -s http://localhost:3000/api/health > /dev/null
+  echo ""
+  sleep 15
+done
+
+echo "After 75 seconds (past 60s cache window):"
+time curl -s http://localhost:3000/api/health > /dev/null
+TESTEOF
+
+chmod +x scripts/test-cache-timing.sh
+./scripts/test-cache-timing.sh
+```
+
+**Expected Results:**
+- First request: Slow (100ms+) - cache miss
+- Requests 2-4 (within 60s): Fast (<10ms) - cache hit
+- Request after 60s: Slow again - cache expired, fresh data
+
+### 6. Test Error Tracking
 
 ```bash
 # Trigger an error in your application
@@ -1385,7 +1899,29 @@ curl http://localhost:3000/api/monitoring/dashboard
 # - Breadcrumbs
 ```
 
-### 4. Test Alerts
+### 7. Test Cache Invalidation on Metric Write
+
+```bash
+# Get current dashboard (this caches the results)
+BEFORE=$(curl -s http://localhost:3000/api/monitoring/dashboard | jq '.metrics.authentication.totalLogins')
+echo "Logins before: $BEFORE"
+
+# Trigger a login (this records a metric and invalidates cache)
+# Login via your app or API
+
+# Get dashboard again (should show updated count immediately, not cached)
+AFTER=$(curl -s http://localhost:3000/api/monitoring/dashboard | jq '.metrics.authentication.totalLogins')
+echo "Logins after: $AFTER"
+
+# Verify the count increased
+if [ "$AFTER" -gt "$BEFORE" ]; then
+  echo "✅ Cache invalidation working! Dashboard shows fresh data."
+else
+  echo "❌ Cache not invalidated. Still showing stale data."
+fi
+```
+
+### 8. Test Alerts
 
 ```bash
 # Stop your database temporarily
@@ -1476,16 +2012,23 @@ Performance
 
 ### Before Going Live
 
+- [ ] **Next.js 16 Configuration** - Cache Components enabled in next.config.js
+- [ ] **Cache Directives** - All monitoring components use `'use cache'`
+- [ ] **Cache Tags** - Proper tags set for invalidation (metrics, health-checks, etc.)
+- [ ] **Cache Duration** - `cacheLife('seconds')` set for 30-60 second cache
+- [ ] **Cache Invalidation** - `updateTag()` called when recording metrics
+- [ ] **Suspense Boundaries** - Dashboard wrapped in `<Suspense>` with loading states
 - [ ] **Sentry configured** - DSN and environment set
 - [ ] **Logging system** - Winston configured, log rotation enabled
-- [ ] **Health checks** - All endpoints tested
-- [ ] **Metrics collection** - Database table created, RPC functions working
+- [ ] **Health checks** - All endpoints tested, caching verified
+- [ ] **Metrics collection** - Database table created, RPC functions working, cache invalidation tested
 - [ ] **Uptime monitoring** - External service configured
 - [ ] **Alert channels** - Slack/email webhooks configured
 - [ ] **Cron jobs** - Automated health checks scheduled
-- [ ] **Monitoring dashboard** - Admin access configured
+- [ ] **Monitoring dashboard** - Admin access configured, cache working
 - [ ] **Error tracking** - Test errors captured in Sentry
 - [ ] **Performance monitoring** - Vercel Analytics enabled
+- [ ] **Cache Performance** - Verified 90% query reduction with caching
 
 ### Regular Monitoring Tasks
 
@@ -1565,16 +2108,22 @@ Performance
 
 ## What You Learned
 
-✅ **Health Check System** - Monitor all system components
+✅ **Next.js 16 Cache Components** - Configure caching for monitoring data
+✅ **Near-Real-Time Caching** - Balance freshness and performance with 30-60s cache
+✅ **Cache Invalidation** - Automatic cache updates when metrics are recorded
+✅ **Suspense Boundaries** - Loading states for cached Server Components
+✅ **Cache Tags** - Granular cache invalidation by feature
+✅ **Health Check System** - Monitor all system components with caching
 ✅ **Error Tracking** - Capture and analyze errors with Sentry
 ✅ **Structured Logging** - Comprehensive logging with Winston
 ✅ **Custom Metrics** - Track business and technical metrics
+✅ **Cached Aggregations** - Expensive queries cached for performance
 ✅ **Alert System** - Real-time notifications for issues
-✅ **Monitoring Dashboard** - Visualize system health
+✅ **Monitoring Dashboard** - Cached dashboard with 90% query reduction
 ✅ **Uptime Monitoring** - External health checks
 ✅ **Performance Monitoring** - Track response times and latency
 ✅ **Feature-Specific Monitoring** - Auth, payments, storage, etc.
-✅ **Production Best Practices** - Alert thresholds, log retention, dashboards
+✅ **Production Best Practices** - Alert thresholds, log retention, dashboards, caching strategy
 
 ---
 
@@ -1602,6 +2151,7 @@ Performance
 ## Reference
 
 **Files Created:**
+- `next.config.js` - Next.js 16 Cache Components configuration
 - `sentry.server.config.ts` - Sentry configuration
 - `supabase/migrations/008_metrics.sql` - Metrics table and RPC functions
 - `src/lib/monitoring/logger.ts` - Structured logging system
@@ -1611,27 +2161,35 @@ Performance
 - `src/lib/monitoring/checks/payments.ts` - Payments health check
 - `src/lib/monitoring/checks/storage.ts` - Storage health check
 - `src/lib/monitoring/checks/realtime.ts` - Realtime health check
-- `src/lib/monitoring/metrics.ts` - Metrics collection system
+- `src/lib/monitoring/metrics.ts` - Metrics collection with cache invalidation
 - `src/lib/monitoring/alerts.ts` - Alert system
-- `src/app/api/health/route.ts` - Main health check endpoint
-- `src/app/api/monitoring/dashboard/route.ts` - Monitoring dashboard API
+- `src/app/api/health/route.ts` - Cached health check endpoint
+- `src/app/api/monitoring/dashboard/route.ts` - Cached monitoring dashboard API
 - `src/app/api/cron/health-check/route.ts` - Automated health check cron
-- `src/app/dashboard/monitoring/page.tsx` - Monitoring dashboard page
-- `src/components/features/monitoring/MonitoringDashboard.tsx` - Dashboard component
-- `src/components/features/monitoring/HealthCheckPanel.tsx` - Health check UI
-- `src/components/features/monitoring/MetricsPanel.tsx` - Metrics UI
+- `src/app/admin/monitoring/page.tsx` - Monitoring dashboard page with Suspense
+- `src/components/features/monitoring/MetricsDashboard.tsx` - Cached dashboard component
+- `src/components/features/monitoring/HealthStatus.tsx` - Cached health status component
+- `scripts/test-cache-timing.sh` - Script to test cache refresh intervals
 
 **Key Concepts:**
+- Next.js 16 Cache Components (`'use cache'`)
+- Cache duration strategies (`cacheLife('seconds')`)
+- Cache invalidation with tags (`updateTag()`)
+- Suspense boundaries for loading states
+- Near-real-time monitoring (30-60s cache)
 - Observability (logs, metrics, traces)
-- Health checks and liveness probes
+- Health checks and liveness probes with caching
 - Structured logging
 - Error tracking and alerting
-- Custom business metrics
+- Custom business metrics with cache invalidation
+- Cached aggregation queries
 - Uptime monitoring
 - Performance monitoring
 - Alert fatigue prevention
 
 **Resources:**
+- Next.js 16 Caching: https://nextjs.org/docs/app/api-reference/directives/use-cache
+- Cache Components Guide: /NEXTJS-16-CACHE-COMPONENTS-REFERENCE.md
 - Sentry Docs: https://docs.sentry.io/
 - Winston Logging: https://github.com/winstonjs/winston
 - OpenTelemetry: https://opentelemetry.io/
@@ -1642,19 +2200,23 @@ Performance
 
 ## Congratulations! 🎉
 
-You've implemented a **comprehensive monitoring and observability system**!
+You've implemented a **comprehensive monitoring and observability system with Next.js 16 Cache Components**!
 
 Your application now has:
-- ✅ Real-time health monitoring
-- ✅ Error tracking and alerting
-- ✅ Custom business metrics
-- ✅ Structured logging
-- ✅ Performance monitoring
-- ✅ Uptime monitoring
-- ✅ Feature-specific instrumentation
-- ✅ Admin monitoring dashboard
+- ✅ **Cached monitoring dashboards** - 90% reduction in database queries
+- ✅ **Near-real-time data** - 30-60 second cache for fresh insights
+- ✅ **Automatic cache invalidation** - Fresh data when metrics are recorded
+- ✅ **Suspense boundaries** - Smooth loading states for cached components
+- ✅ **Real-time health monitoring** - Cached health checks
+- ✅ **Error tracking and alerting** - Sentry integration
+- ✅ **Custom business metrics** - With cache invalidation
+- ✅ **Structured logging** - Winston logging system
+- ✅ **Performance monitoring** - Track response times
+- ✅ **Uptime monitoring** - External health checks
+- ✅ **Feature-specific instrumentation** - Per-feature cache tags
+- ✅ **Admin monitoring dashboard** - Fast, cached aggregations
 
-**Your system is production-ready and observable!** 📊
+**Your system is production-ready, observable, and performant!** 📊⚡
 
 ---
 
@@ -2309,84 +2871,120 @@ In this lesson, you learned how to implement comprehensive monitoring and observ
 
 ### ✅ What We Covered
 
-1. **Feature-Segregated Health Checks**
+1. **Next.js 16 Cache Components Configuration**
+   - Experimental cache components enabled
+   - Cache lifecycle configuration (30-60s for monitoring)
+   - Cache duration strategies
+   - next.config.js setup
+
+2. **Cached Server Components**
+   - `'use cache'` directive for monitoring components
+   - `cacheLife('seconds')` for near-real-time data
+   - `cacheTag()` for granular invalidation
+   - Suspense boundaries for loading states
+
+3. **Cache Invalidation Strategy**
+   - `updateTag()` when recording metrics
+   - Feature-specific cache tags
+   - Automatic cache refresh
+   - Selective invalidation
+
+4. **Feature-Segregated Health Checks (Cached)**
    - Authentication health monitoring
    - Payment system checks
    - Database connectivity tests
    - Storage availability verification
    - Realtime subscription monitoring
+   - 30-60 second cache for health status
 
-2. **Error Tracking**
+5. **Error Tracking**
    - Sentry integration for error capture
    - Source maps for debugging
    - Error grouping and alerting
    - Performance monitoring
 
-3. **Structured Logging**
+6. **Structured Logging**
    - Winston logger setup
    - Log rotation and retention
    - Feature-specific loggers (auth, payment, project)
    - Log levels and formatting
 
-4. **Custom Metrics**
+7. **Custom Metrics (with Cache Invalidation)**
    - Database metrics table
-   - Metrics collection API
-   - Aggregation RPC functions
+   - Metrics collection API with cache invalidation
+   - Cached aggregation RPC functions
    - Business and technical metrics
+   - 90% reduction in database load
 
-5. **Alert System**
+8. **Alert System**
    - Multi-channel alerts (Slack, email)
    - Alert levels (critical, warning, info)
    - Configurable thresholds
    - Alert deduplication
 
-6. **Monitoring Dashboard**
-   - Real-time metrics display
+9. **Monitoring Dashboard (Cached)**
+   - Cached metrics display (30-60s)
    - Health status overview
    - Performance tracking
    - User activity monitoring
+   - Fast dashboard loads
 
-7. **Automated Monitoring**
-   - Health check cron jobs
-   - Uptime monitoring
-   - External service checks
-   - Alert escalation
+10. **Automated Monitoring**
+    - Health check cron jobs
+    - Uptime monitoring
+    - External service checks
+    - Alert escalation
 
-8. **Verification Tools**
-   - SQL queries for quick checks
-   - Bash scripts for automation
-   - Node.js monitoring scripts
-   - Quick verification checklist
+11. **Verification Tools**
+    - Cache timing tests
+    - Cache invalidation tests
+    - SQL queries for quick checks
+    - Bash scripts for automation
+    - Node.js monitoring scripts
+    - Quick verification checklist
 
 ### 🎯 Key Takeaways
 
+- **Cache Monitoring Data**: Use Next.js 16 Cache Components for 90% query reduction
+- **Near-Real-Time is Enough**: 30-60 second cache balances freshness and performance
+- **Invalidate Selectively**: Use cache tags to invalidate only relevant data
+- **Suspense for UX**: Show loading states while fetching cached data
 - **Monitor Everything**: Database, authentication, payments, storage, and realtime features
 - **Segregate by Feature**: Separate health checks make it easier to identify issues
+- **Cache Health Checks**: Prevent overload with 30-60 second cache
 - **Log Strategically**: Capture meaningful logs without overwhelming storage
 - **Alert Proactively**: Set up alerts before issues become critical
-- **Verify Regularly**: Use automated scripts to verify system health
+- **Verify Regularly**: Use automated scripts to verify system health and cache performance
 - **Track Metrics**: Monitor both technical and business metrics
-- **Test Monitoring**: Regularly test your monitoring and alert systems
+- **Test Monitoring**: Regularly test your monitoring, alert systems, and cache invalidation
 - **Retain Appropriately**: Balance log retention with storage costs
 
 ### 📊 Monitoring Best Practices
 
-1. **Health Checks**: Run every 1-5 minutes
-2. **Metrics Collection**: Real-time for critical, batched for analytics
-3. **Log Retention**: 7-30 days depending on criticality
-4. **Alert Thresholds**: Start conservative, tune based on patterns
-5. **Dashboard Updates**: Real-time for critical, 30-60s for analytics
-6. **Uptime Monitoring**: External service checking every 1-5 minutes
+1. **Cache Duration**: 30-60 seconds for monitoring dashboards (balance real-time and performance)
+2. **Cache Invalidation**: Always invalidate cache when recording new metrics
+3. **Cache Tags**: Use feature-specific tags for granular invalidation
+4. **Health Checks**: Cache for 30-60 seconds, external checks every 1-5 minutes
+5. **Metrics Collection**: Real-time writes, cached reads (30-60s)
+6. **Log Retention**: 7-30 days depending on criticality
+7. **Alert Thresholds**: Start conservative, tune based on patterns
+8. **Dashboard Updates**: 30-60s cache for aggregated views
+9. **Uptime Monitoring**: External service checking every 1-5 minutes
+10. **Cache Performance**: Monitor cache hit rates and query reduction
 
 ### 🚀 Next Steps
 
-1. **Set up Sentry** and verify error tracking
-2. **Configure alerts** for your team's communication channels
-3. **Deploy health checks** and monitor for 24 hours
-4. **Tune alert thresholds** based on baseline metrics
-5. **Create runbooks** for common issues
-6. **Set up on-call rotation** for critical alerts
-7. **Review metrics weekly** to identify trends
+1. **Verify Cache Components** working in next.config.js
+2. **Test cache performance** - confirm 90% query reduction
+3. **Monitor cache hit rates** in production
+4. **Set up Sentry** and verify error tracking
+5. **Configure alerts** for your team's communication channels
+6. **Deploy health checks** and monitor for 24 hours
+7. **Tune alert thresholds** based on baseline metrics
+8. **Tune cache durations** based on usage patterns
+9. **Create runbooks** for common issues (include cache invalidation)
+10. **Set up on-call rotation** for critical alerts
+11. **Review metrics weekly** to identify trends
 
 ### 📚 Additional Resources
 
@@ -2398,6 +2996,6 @@ In this lesson, you learned how to implement comprehensive monitoring and observ
 
 ---
 
-**Congratulations!** 🎉 You've now implemented a production-ready monitoring and observability system that will help you maintain a healthy, performant application and quickly identify and resolve issues before they impact users.
+**Congratulations!** 🎉 You've now implemented a production-ready monitoring and observability system with Next.js 16 Cache Components that will help you maintain a healthy, performant application and quickly identify and resolve issues before they impact users.
 
-The monitoring foundation you've built will scale with your application and provide invaluable insights into system behavior, user activity, and business metrics. Your application is now equipped to handle production traffic with confidence!
+The monitoring foundation you've built will scale with your application and provide invaluable insights into system behavior, user activity, and business metrics. By leveraging Cache Components, your monitoring dashboards achieve **90% reduction in database load** while maintaining near-real-time visibility into your system's health. Your application is now equipped to handle production traffic with confidence and performance!
