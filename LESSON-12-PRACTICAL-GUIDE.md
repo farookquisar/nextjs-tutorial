@@ -1659,3 +1659,745 @@ Your application now has:
 ---
 
 **Tutorial Complete:** You've built a full-stack production application with Next.js 16, React 19.2, Supabase, Stripe payments, and comprehensive monitoring!
+
+---
+
+## Quick Verification Guide: Database Queries & Scripts
+
+### SQL Queries for Quick Health Checks
+
+#### 1. Check Metrics Collection
+
+```sql
+-- Check if metrics table exists and has data
+SELECT 
+  metric_type,
+  COUNT(*) as total_events,
+  MIN(created_at) as first_event,
+  MAX(created_at) as last_event,
+  COUNT(DISTINCT user_id) as unique_users
+FROM metrics
+GROUP BY metric_type
+ORDER BY total_events DESC;
+
+-- Expected output:
+-- auth.login    | 45 | 2024-01-20 10:00:00 | 2024-01-20 15:30:00 | 12
+-- project.create| 23 | 2024-01-20 10:15:00 | 2024-01-20 15:20:00 | 8
+-- payment.success| 5 | 2024-01-20 11:00:00 | 2024-01-20 14:00:00 | 5
+```
+
+#### 2. Check Recent Authentication Activity
+
+```sql
+-- Get last 24 hours of auth metrics
+SELECT 
+  metric_type,
+  COUNT(*) as count,
+  jsonb_pretty(jsonb_agg(DISTINCT metadata)) as sample_metadata
+FROM metrics
+WHERE 
+  metric_type IN ('auth.login', 'auth.failure', 'auth.signup')
+  AND created_at >= NOW() - INTERVAL '24 hours'
+GROUP BY metric_type;
+
+-- Check login success rate
+WITH auth_stats AS (
+  SELECT 
+    metric_type,
+    COUNT(*) as count
+  FROM metrics
+  WHERE 
+    metric_type IN ('auth.login', 'auth.failure')
+    AND created_at >= NOW() - INTERVAL '24 hours'
+  GROUP BY metric_type
+)
+SELECT 
+  COALESCE((SELECT count FROM auth_stats WHERE metric_type = 'auth.login'), 0) as successful_logins,
+  COALESCE((SELECT count FROM auth_stats WHERE metric_type = 'auth.failure'), 0) as failed_logins,
+  ROUND(
+    COALESCE((SELECT count FROM auth_stats WHERE metric_type = 'auth.login'), 0)::numeric / 
+    NULLIF(
+      COALESCE((SELECT count FROM auth_stats WHERE metric_type = 'auth.login'), 0) + 
+      COALESCE((SELECT count FROM auth_stats WHERE metric_type = 'auth.failure'), 0),
+      0
+    ) * 100,
+    2
+  ) as success_rate_percent;
+```
+
+#### 3. Check Payment Metrics
+
+```sql
+-- Payment success/failure tracking
+SELECT 
+  metric_type,
+  COUNT(*) as transaction_count,
+  SUM(metric_value) as total_value,
+  AVG(metric_value) as avg_value,
+  MIN(metric_value) as min_value,
+  MAX(metric_value) as max_value
+FROM metrics
+WHERE 
+  metric_type IN ('payment.success', 'payment.failure')
+  AND created_at >= NOW() - INTERVAL '7 days'
+GROUP BY metric_type;
+
+-- Daily revenue breakdown
+SELECT 
+  DATE(created_at) as date,
+  COUNT(*) as payments,
+  SUM(metric_value) as revenue_cents,
+  ROUND(SUM(metric_value) / 100.0, 2) as revenue_dollars
+FROM metrics
+WHERE 
+  metric_type = 'payment.success'
+  AND created_at >= NOW() - INTERVAL '30 days'
+GROUP BY DATE(created_at)
+ORDER BY date DESC;
+```
+
+#### 4. Check System Health Status
+
+```sql
+-- Check subscription health
+SELECT 
+  plan_id,
+  COUNT(*) as user_count,
+  status,
+  COUNT(*) FILTER (WHERE cancel_at_period_end = true) as canceling_soon
+FROM prj_user_subscriptions
+GROUP BY plan_id, status
+ORDER BY plan_id;
+
+-- Check project creation by plan
+SELECT 
+  s.plan_id,
+  COUNT(DISTINCT p.id) as total_projects,
+  COUNT(DISTINCT p.owner_id) as active_users,
+  ROUND(AVG(project_count.cnt), 2) as avg_projects_per_user
+FROM prj_user_subscriptions s
+LEFT JOIN prj_projects p ON p.owner_id = s.user_id
+LEFT JOIN (
+  SELECT owner_id, COUNT(*) as cnt
+  FROM prj_projects
+  GROUP BY owner_id
+) project_count ON project_count.owner_id = s.user_id
+GROUP BY s.plan_id;
+```
+
+#### 5. Check Database Performance
+
+```sql
+-- Check for slow queries (if pg_stat_statements is enabled)
+-- Note: pg_stat_statements must be enabled in PostgreSQL config
+SELECT 
+  query,
+  calls,
+  total_exec_time,
+  mean_exec_time,
+  max_exec_time
+FROM pg_stat_statements
+WHERE mean_exec_time > 1000 -- queries taking more than 1 second
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- Check table sizes
+SELECT 
+  schemaname,
+  tablename,
+  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+
+-- Check index usage
+SELECT 
+  schemaname,
+  tablename,
+  indexname,
+  idx_scan as index_scans,
+  idx_tup_read as tuples_read,
+  idx_tup_fetch as tuples_fetched
+FROM pg_stat_user_indexes
+WHERE schemaname = 'public'
+ORDER BY idx_scan DESC;
+```
+
+### API Health Check Scripts
+
+#### 1. Basic Health Check
+
+```bash
+#!/bin/bash
+# Save as: scripts/check-health.sh
+
+echo "🏥 Health Check - $(date)"
+echo "================================"
+
+# Check main health endpoint
+response=$(curl -s http://localhost:3000/api/health)
+status=$(echo $response | jq -r '.status')
+
+if [ "$status" == "healthy" ]; then
+  echo "✅ System Status: HEALTHY"
+else
+  echo "❌ System Status: $status"
+fi
+
+# Check detailed health
+curl -s http://localhost:3000/api/health?detailed=true | jq '.checks | to_entries[] | {service: .key, status: .value.status, responseTime: .value.responseTime}'
+
+echo ""
+echo "================================"
+```
+
+#### 2. Detailed Component Health Check
+
+```bash
+#!/bin/bash
+# Save as: scripts/check-all-services.sh
+
+check_service() {
+  local name=$1
+  local url=$2
+  
+  start_time=$(date +%s%N)
+  response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
+  end_time=$(date +%s%N)
+  
+  duration=$(( (end_time - start_time) / 1000000 ))
+  
+  if [ "$response" == "200" ]; then
+    echo "✅ $name: OK (${duration}ms)"
+  else
+    echo "❌ $name: FAILED (HTTP $response)"
+  fi
+}
+
+echo "🔍 Checking All Services..."
+echo ""
+
+check_service "Main Health" "http://localhost:3000/api/health"
+check_service "Database" "http://localhost:3000/api/health?detailed=true"
+check_service "Monitoring Dashboard" "http://localhost:3000/api/monitoring/dashboard"
+check_service "Authentication" "http://localhost:3000/api/auth/session"
+
+echo ""
+echo "✨ Check complete!"
+```
+
+#### 3. Metrics Dashboard Quick Check
+
+```bash
+#!/bin/bash
+# Save as: scripts/check-metrics.sh
+
+echo "📊 Metrics Summary (Last 24h)"
+echo "================================"
+
+curl -s http://localhost:3000/api/monitoring/dashboard | jq '{
+  authentication: .metrics.authentication,
+  payments: .metrics.payments,
+  projects: .metrics.projects.totalCreated,
+  tasks: .metrics.tasks.totalCreated
+}'
+```
+
+#### 4. Load Test Metrics Collection
+
+```bash
+#!/bin/bash
+# Save as: scripts/test-metrics-collection.sh
+
+echo "🧪 Testing Metrics Collection..."
+
+# This script demonstrates how to test metrics collection
+# Note: Replace $DATABASE_URL with your actual Supabase connection string
+
+echo "Inserting test metrics..."
+echo "INSERT INTO metrics (metric_type, metric_value, metadata) VALUES ('auth.login', 1, '{\"test\": true}');"
+echo ""
+echo "After running test metrics, check with:"
+echo "SELECT metric_type, COUNT(*) FROM metrics WHERE metadata->>'test' = 'true' GROUP BY metric_type;"
+echo ""
+echo "Delete test metrics with:"
+echo "DELETE FROM metrics WHERE metadata->>'test' = 'true';"
+```
+
+### Node.js Monitoring Scripts
+
+#### 1. Health Check Script
+
+```javascript
+// Save as: scripts/health-check.js
+// Usage: node scripts/health-check.js
+
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+async function checkHealth() {
+  console.log('🏥 Running Health Checks...\n');
+  
+  try {
+    // Main health check
+    const healthRes = await fetch(`${BASE_URL}/api/health`);
+    const health = await healthRes.json();
+    
+    console.log(`Overall Status: ${health.status === 'healthy' ? '✅' : '❌'} ${health.status.toUpperCase()}`);
+    console.log(`Timestamp: ${health.timestamp}\n`);
+    
+    // Detailed checks
+    const detailedRes = await fetch(`${BASE_URL}/api/health?detailed=true`);
+    const detailed = await detailedRes.json();
+    
+    console.log('Component Status:');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    for (const [name, check] of Object.entries(detailed.checks)) {
+      const icon = check.status === 'healthy' ? '✅' : '❌';
+      const time = check.responseTime ? `(${check.responseTime}ms)` : '';
+      console.log(`${icon} ${name.padEnd(15)} ${check.message} ${time}`);
+    }
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    
+    return health.status === 'healthy';
+  } catch (error) {
+    console.error('❌ Health check failed:', error.message);
+    return false;
+  }
+}
+
+async function main() {
+  const isHealthy = await checkHealth();
+  process.exit(isHealthy ? 0 : 1);
+}
+
+main();
+```
+
+#### 2. Real-Time Metrics Monitor
+
+```javascript
+// Save as: scripts/monitor-metrics.js
+// Usage: node scripts/monitor-metrics.js
+
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+async function fetchMetrics() {
+  const res = await fetch(`${BASE_URL}/api/monitoring/dashboard`);
+  return res.json();
+}
+
+function formatMetrics(data) {
+  console.clear();
+  console.log('📊 Real-Time Metrics Dashboard');
+  console.log('════════════════════════════════════════════════\n');
+  
+  // Authentication
+  console.log('🔐 AUTHENTICATION (24h)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`  Logins:        ${data.metrics.authentication.totalLogins}`);
+  console.log(`  Failed:        ${data.metrics.authentication.failedLogins}`);
+  console.log(`  Success Rate:  ${data.metrics.authentication.successRate}%`);
+  console.log(`  Active Users:  ${data.metrics.authentication.activeUsers}\n`);
+  
+  // Payments
+  console.log('💳 PAYMENTS (24h)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`  Successful:    ${data.metrics.payments.successful}`);
+  console.log(`  Failed:        ${data.metrics.payments.failed}`);
+  console.log(`  Success Rate:  ${data.metrics.payments.successRate}%`);
+  console.log(`  Revenue:       $${(data.metrics.payments.revenue / 100).toFixed(2)}\n`);
+  
+  // Projects & Tasks
+  console.log('📁 PROJECTS & TASKS (24h)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`  Projects:      ${data.metrics.projects.totalCreated}`);
+  console.log(`  Tasks:         ${data.metrics.tasks.totalCreated}`);
+  console.log(`  Completed:     ${data.metrics.tasks.totalCompleted}\n`);
+  
+  // Storage
+  console.log('💾 STORAGE');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`  Files:         ${data.metrics.storage.totalFiles}`);
+  console.log(`  Size:          ${(data.metrics.storage.totalSize / 1024 / 1024).toFixed(2)} MB\n`);
+  
+  // Performance
+  console.log('⚡ PERFORMANCE');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`  Avg Response:  ${data.performance.avgResponseTime}ms`);
+  console.log(`  Errors (24h):  ${data.performance.errorCount}\n`);
+  
+  console.log(`Last updated: ${new Date().toLocaleString()}`);
+  console.log('Press Ctrl+C to stop monitoring...');
+}
+
+async function monitor() {
+  try {
+    const data = await fetchMetrics();
+    formatMetrics(data);
+  } catch (error) {
+    console.error('❌ Failed to fetch metrics:', error.message);
+  }
+}
+
+// Monitor every 30 seconds
+console.log('🚀 Starting metrics monitor...\n');
+monitor();
+setInterval(monitor, 30000);
+```
+
+#### 3. Alert System Test
+
+```javascript
+// Save as: scripts/test-alerts.js
+// Usage: node scripts/test-alerts.js
+
+async function testAlert() {
+  console.log('🔔 Testing Alert System...\n');
+  
+  const testPayload = {
+    level: 'warning',
+    title: 'Test Alert',
+    message: 'This is a test alert from the monitoring system',
+    details: {
+      timestamp: new Date().toISOString(),
+      test: true
+    }
+  };
+  
+  try {
+    const response = await fetch('http://localhost:3000/api/monitoring/alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testPayload)
+    });
+    
+    if (response.ok) {
+      console.log('✅ Alert sent successfully!');
+      console.log('   Check your Slack channel or email for the alert.');
+    } else {
+      console.error('❌ Alert failed:', await response.text());
+    }
+  } catch (error) {
+    console.error('❌ Failed to send alert:', error.message);
+  }
+}
+
+testAlert();
+```
+
+---
+
+## Quick Verification Checklist
+
+### After Setup - Verify Everything Works
+
+**1. Database Setup ✓**
+```bash
+# Check metrics table exists
+psql $DATABASE_URL -c "\d metrics"
+
+# Check health_checks table exists  
+psql $DATABASE_URL -c "\d health_checks"
+
+# Verify RPC functions
+psql $DATABASE_URL -c "\df get_metrics_aggregate"
+```
+
+**2. Health Endpoints ✓**
+```bash
+# Test basic health
+curl http://localhost:3000/api/health
+
+# Test detailed health
+curl http://localhost:3000/api/health?detailed=true
+
+# Test monitoring dashboard
+curl http://localhost:3000/api/monitoring/dashboard
+```
+
+**3. Metrics Collection ✓**
+```bash
+# Insert a test metric
+curl -X POST http://localhost:3000/api/monitoring/metrics \
+  -H "Content-Type: application/json" \
+  -d '{"type": "test.metric", "value": 1, "metadata": {"test": true}}'
+
+# Verify it was recorded
+psql $DATABASE_URL -c "SELECT * FROM metrics WHERE metric_type = 'test.metric' LIMIT 5;"
+```
+
+**4. Error Tracking ✓**
+```bash
+# Trigger a test error
+curl http://localhost:3000/api/test-error
+
+# Check Sentry dashboard at: https://sentry.io
+# Should see the error logged
+```
+
+**5. Logging System ✓**
+```bash
+# Check logs directory
+ls -lh logs/
+
+# View recent errors
+tail -f logs/error.log
+
+# View combined logs
+tail -f logs/combined.log
+```
+
+**6. Alert System ✓**
+```bash
+# Test alert webhook
+node scripts/test-alerts.js
+
+# Check Slack channel or email for test alert
+```
+
+**7. Monitoring Dashboard ✓**
+```bash
+# Access the dashboard
+open http://localhost:3000/admin/monitoring
+
+# Verify all metrics display
+# Check real-time updates
+```
+
+**8. Automated Health Checks ✓**
+```bash
+# Run health check script
+chmod +x scripts/check-health.sh
+./scripts/check-health.sh
+
+# Run comprehensive check
+chmod +x scripts/check-all-services.sh
+./scripts/check-all-services.sh
+```
+
+**9. Real-Time Monitoring ✓**
+```bash
+# Start real-time monitor
+node scripts/monitor-metrics.js
+
+# Should update every 30 seconds
+```
+
+**10. Uptime Monitoring ✓**
+- Set up UptimeRobot or Pingdom
+- Monitor endpoint: `https://yourdomain.com/api/health`
+- Configure alerts for downtime
+- Test by temporarily stopping the server
+
+---
+
+## Troubleshooting
+
+### Health Check Returns Unhealthy
+
+**Database Issues:**
+```sql
+-- Check database connectivity
+SELECT NOW();
+
+-- Check for connection issues
+SELECT 
+  datname,
+  numbackends,
+  xact_commit,
+  xact_rollback
+FROM pg_stat_database
+WHERE datname = current_database();
+```
+
+**Storage Issues:**
+```bash
+# Check Supabase storage status
+curl https://your-project.supabase.co/storage/v1/healthcheck
+```
+
+### Metrics Not Being Recorded
+
+**Check Metrics Table:**
+```sql
+-- Verify table structure
+\d metrics
+
+-- Check recent inserts
+SELECT metric_type, COUNT(*), MAX(created_at)
+FROM metrics
+GROUP BY metric_type
+ORDER BY MAX(created_at) DESC;
+
+-- Check for errors in insertion
+SELECT * FROM metrics 
+WHERE created_at >= NOW() - INTERVAL '1 hour'
+ORDER BY created_at DESC
+LIMIT 50;
+```
+
+**Check RPC Functions:**
+```sql
+-- Test metrics aggregate function
+SELECT * FROM get_metrics_aggregate(
+  'auth.login',
+  NOW() - INTERVAL '24 hours',
+  NOW()
+);
+```
+
+### Sentry Not Receiving Errors
+
+**Verify Configuration:**
+```bash
+# Check environment variables
+echo $SENTRY_DSN
+echo $NEXT_PUBLIC_SENTRY_DSN
+
+# Test Sentry connection
+node -e "
+const Sentry = require('@sentry/nextjs');
+Sentry.init({ dsn: process.env.SENTRY_DSN });
+Sentry.captureMessage('Test from CLI');
+console.log('Test error sent to Sentry');
+"
+```
+
+### Logs Not Rotating
+
+**Check Winston Configuration:**
+```javascript
+// In src/lib/monitoring/logger.ts
+// Verify maxSize and maxFiles settings
+
+// Manually compress old logs
+gzip logs/*.log
+
+// Check disk space
+df -h logs/
+```
+
+### Alerts Not Sending
+
+**Test Slack Webhook:**
+```bash
+# Test Slack directly
+curl -X POST $SLACK_WEBHOOK_URL \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Test alert from monitoring system"}'
+
+# Check webhook response
+# Should return "ok"
+```
+
+**Test Email Alerts:**
+```bash
+# Verify email service configuration
+# Check SMTP settings in .env.local
+
+# Send test email
+node scripts/test-alerts.js
+```
+
+---
+
+## Summary
+
+In this lesson, you learned how to implement comprehensive monitoring and observability for your Next.js application:
+
+### ✅ What We Covered
+
+1. **Feature-Segregated Health Checks**
+   - Authentication health monitoring
+   - Payment system checks
+   - Database connectivity tests
+   - Storage availability verification
+   - Realtime subscription monitoring
+
+2. **Error Tracking**
+   - Sentry integration for error capture
+   - Source maps for debugging
+   - Error grouping and alerting
+   - Performance monitoring
+
+3. **Structured Logging**
+   - Winston logger setup
+   - Log rotation and retention
+   - Feature-specific loggers (auth, payment, project)
+   - Log levels and formatting
+
+4. **Custom Metrics**
+   - Database metrics table
+   - Metrics collection API
+   - Aggregation RPC functions
+   - Business and technical metrics
+
+5. **Alert System**
+   - Multi-channel alerts (Slack, email)
+   - Alert levels (critical, warning, info)
+   - Configurable thresholds
+   - Alert deduplication
+
+6. **Monitoring Dashboard**
+   - Real-time metrics display
+   - Health status overview
+   - Performance tracking
+   - User activity monitoring
+
+7. **Automated Monitoring**
+   - Health check cron jobs
+   - Uptime monitoring
+   - External service checks
+   - Alert escalation
+
+8. **Verification Tools**
+   - SQL queries for quick checks
+   - Bash scripts for automation
+   - Node.js monitoring scripts
+   - Quick verification checklist
+
+### 🎯 Key Takeaways
+
+- **Monitor Everything**: Database, authentication, payments, storage, and realtime features
+- **Segregate by Feature**: Separate health checks make it easier to identify issues
+- **Log Strategically**: Capture meaningful logs without overwhelming storage
+- **Alert Proactively**: Set up alerts before issues become critical
+- **Verify Regularly**: Use automated scripts to verify system health
+- **Track Metrics**: Monitor both technical and business metrics
+- **Test Monitoring**: Regularly test your monitoring and alert systems
+- **Retain Appropriately**: Balance log retention with storage costs
+
+### 📊 Monitoring Best Practices
+
+1. **Health Checks**: Run every 1-5 minutes
+2. **Metrics Collection**: Real-time for critical, batched for analytics
+3. **Log Retention**: 7-30 days depending on criticality
+4. **Alert Thresholds**: Start conservative, tune based on patterns
+5. **Dashboard Updates**: Real-time for critical, 30-60s for analytics
+6. **Uptime Monitoring**: External service checking every 1-5 minutes
+
+### 🚀 Next Steps
+
+1. **Set up Sentry** and verify error tracking
+2. **Configure alerts** for your team's communication channels
+3. **Deploy health checks** and monitor for 24 hours
+4. **Tune alert thresholds** based on baseline metrics
+5. **Create runbooks** for common issues
+6. **Set up on-call rotation** for critical alerts
+7. **Review metrics weekly** to identify trends
+
+### 📚 Additional Resources
+
+- [Sentry Documentation](https://docs.sentry.io/)
+- [Winston Logger](https://github.com/winstonjs/winston)
+- [UptimeRobot](https://uptimerobot.com/)
+- [Pingdom](https://www.pingdom.com/)
+- [Observability Best Practices](https://www.datadoghq.com/knowledge-center/observability/)
+
+---
+
+**Congratulations!** 🎉 You've now implemented a production-ready monitoring and observability system that will help you maintain a healthy, performant application and quickly identify and resolve issues before they impact users.
+
+The monitoring foundation you've built will scale with your application and provide invaluable insights into system behavior, user activity, and business metrics. Your application is now equipped to handle production traffic with confidence!
