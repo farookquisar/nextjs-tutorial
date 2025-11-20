@@ -556,6 +556,75 @@
 
 ---
 
+## Lesson 11: Payments & Subscriptions with Stripe
+
+**Reference:** `LESSON-11-PRACTICAL-GUIDE.md`
+
+**What was built:**
+- Complete Stripe payment integration
+- Freemium model (2 free projects, paid plans for more)
+- Stripe Checkout for subscription payments
+- Customer billing portal for self-service
+- Webhook handling for payment events
+- Pricing page with multiple tiers
+- Billing dashboard with usage stats
+- Payment history tracking
+
+**Business Model:**
+- Free Tier: 2 projects, 3 members per project, 100 MB storage
+- Pro Tier ($10/month): 10 projects, 10 members per project, 5 GB storage
+- Team Tier ($25/month): Unlimited projects and members, 50 GB storage
+
+**Database changes:**
+- Created `prj_user_subscriptions` table
+- Created `prj_payment_history` table
+- Trigger to auto-create free subscription on user signup
+- RPC function: `get_user_subscription()` - Get subscription with usage stats
+- RPC function: `can_create_project()` - Check if user can create project
+- RPC function: `get_payment_history()` - List all payments for user
+
+**Key files created:**
+- `supabase/migrations/007_subscriptions.sql` - Subscription tables and RLS
+- `src/constants/index.ts` - Subscription plans and limits (EXTENDED)
+- `src/types/subscription.ts` - TypeScript types for subscriptions
+- `src/lib/stripe/client.ts` - Client-side Stripe.js
+- `src/lib/stripe/server.ts` - Server-side Stripe API
+- `src/lib/actions/subscriptions.ts` - Subscription Server Actions
+- `src/app/api/webhooks/stripe/route.ts` - Stripe webhook handler
+- `src/app/pricing/page.tsx` - Public pricing page
+- `src/app/dashboard/billing/page.tsx` - Billing dashboard
+- `src/app/dashboard/billing/success/page.tsx` - Checkout success page
+- `src/app/dashboard/billing/cancel/page.tsx` - Checkout cancel page
+- `src/components/features/billing/PricingCard.tsx` - Pricing card component
+- `src/components/features/billing/BillingOverview.tsx` - Subscription overview
+- `src/components/features/billing/PaymentHistoryTable.tsx` - Payment history display
+- `src/components/features/projects/UpgradePrompt.tsx` - Upgrade prompt component
+- `src/lib/actions/projects.ts` - Added subscription limit check (UPDATED)
+
+**Key concepts:**
+- **Freemium Model** - Free tier with usage limits
+- **Stripe Checkout** - Hosted payment pages
+- **Subscription Lifecycle** - Create, upgrade, downgrade, cancel
+- **Webhook Security** - Verify signatures, process events
+- **Customer Portal** - Self-service billing management
+- **Usage Enforcement** - Database-level limit checking
+- **RLS for Subscriptions** - Secure subscription data
+- **Payment Events** - Handle success, failure, cancellation
+
+**Subscription features:**
+- Create Stripe Checkout sessions
+- Process subscription webhooks (checkout, updates, cancellations)
+- Track payment history in database
+- Display current plan and usage
+- Enforce project creation limits based on plan
+- Customer billing portal for plan management
+- Automatic free subscription on signup
+- Upgrade prompts when limits reached
+- Support for multiple pricing tiers
+
+**Technologies:** Stripe, Stripe Checkout, Stripe Customer Portal, Stripe Webhooks, Stripe CLI
+
+---
 ## Learning Progression Summary
 
 **Lesson 1:** Setup → Next.js project foundation + constants.ts
@@ -568,6 +637,7 @@
 **Lesson 8:** File Storage → Supabase Storage, file uploads, signed URLs, image previews
 **Lesson 9:** Search → Full-text search, advanced filtering, pagination, autocomplete
 **Lesson 10:** Deployment → Production deployment to Vercel, monitoring, security
+**Lesson 11:** Payments → Stripe subscriptions, freemium model, billing management
 
 ---
 
@@ -631,3 +701,4 @@
 - `LESSON-8-PRACTICAL-GUIDE.md` - File uploads with Supabase Storage
 - `LESSON-9-PRACTICAL-GUIDE.md` - Search & filtering with full-text search
 - `LESSON-10-PRACTICAL-GUIDE.md` - Production deployment to Vercel
+- `LESSON-11-PRACTICAL-GUIDE.md` - Payments & subscriptions with Stripe
