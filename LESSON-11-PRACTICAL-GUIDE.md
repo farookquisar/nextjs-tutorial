@@ -2277,3 +2277,733 @@ Your users can now:
 **Next lesson preview:** You could extend this with email notifications, team billing, or advanced analytics!
 
 **Happy monetizing!** 💰
+
+---
+
+## Security Considerations for Payment Integration
+
+### 🔒 Critical Security Measures
+
+Payment processing requires the highest security standards. Here's how we protect your application and users:
+
+---
+
+## 1. API Key Security
+
+### ✅ Server-Side Only Secret Keys
+
+**CRITICAL:** Never expose your Stripe secret key in client-side code!
+
+```typescript
+// ❌ NEVER DO THIS - Secret key exposed to browser
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!); // In client component
+
+// ✅ CORRECT - Secret key only on server
+// src/lib/stripe/server.ts (server-side only)
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2024-11-20.acacia',
+});
+```
+
+**Environment Variable Rules:**
+```bash
+# ✅ Safe - Client-side (pk_ prefix is publishable)
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+
+# ❌ NEVER prefix with NEXT_PUBLIC - Server-side only
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+**Why:** If secret keys leak, attackers can:
+- Create fake subscriptions
+- Issue refunds
+- Access customer data
+- Modify payment amounts
+
+---
+
+## 2. Webhook Signature Verification
+
+### ✅ Always Verify Webhook Signatures
+
+Our webhook handler includes signature verification to prevent spoofed requests:
+
+```typescript
+// src/app/api/webhooks/stripe/route.ts
+
+export async function POST(request: NextRequest) {
+  const body = await request.text(); // ✅ Get raw body
+  const signature = request.headers.get('stripe-signature');
+
+  if (!signature) {
+    return NextResponse.json({ error: 'No signature' }, { status: 400 });
+  }
+
+  // ✅ Verify signature
+  try {
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+  } catch (error) {
+    // ❌ Invalid signature - reject request
+    console.error('Webhook signature verification failed');
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+  }
+
+  // ✅ Signature valid - process event
+}
+```
+
+**Why This Matters:**
+- Prevents attackers from sending fake payment success events
+- Ensures only Stripe can trigger subscription updates
+- Protects against replay attacks
+
+**Common Mistakes to Avoid:**
+```typescript
+// ❌ DON'T use parsed JSON for signature verification
+const body = await request.json(); // Breaks signature!
+
+// ✅ DO use raw body
+const body = await request.text();
+```
+
+---
+
+## 3. HTTPS Enforcement
+
+### ✅ All Payment Flows Must Use HTTPS
+
+**In Production:**
+```typescript
+// next.config.ts
+export default {
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          // ✅ Force HTTPS
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+        ],
+      },
+    ];
+  },
+};
+```
+
+**Stripe Checkout automatically uses HTTPS**, but ensure your redirect URLs do too:
+
+```typescript
+// ✅ Always use HTTPS in production
+const successUrl = `https://your-domain.com/billing/success`; // Not http://
+
+// ✅ Use environment-aware URLs
+const successUrl = `${process.env.NEXT_PUBLIC_APP_URL}/billing/success`;
+```
+
+---
+
+## 4. Input Validation & Sanitization
+
+### ✅ Validate All Payment-Related Inputs
+
+Never trust user input, even for non-sensitive fields:
+
+```typescript
+// src/lib/validations/subscription.ts
+import { z } from 'zod';
+
+export const createCheckoutSchema = z.object({
+  priceId: z.string().startsWith('price_'), // ✅ Validate format
+  userId: z.string().uuid(), // ✅ Must be valid UUID
+  email: z.string().email(), // ✅ Must be valid email
+});
+
+// In Server Action
+export async function createCheckoutSession(input: any) {
+  // ✅ Validate before processing
+  const validated = createCheckoutSchema.parse(input);
+  
+  // ✅ Additional check: user must match authenticated user
+  const { data: { user } } = await supabase.auth.getUser();
+  if (validated.userId !== user?.id) {
+    throw new Error('Unauthorized');
+  }
+  
+  // Now safe to proceed...
+}
+```
+
+**Prevent Price Manipulation:**
+```typescript
+// ❌ DON'T let users specify prices
+const session = await stripe.checkout.sessions.create({
+  line_items: [{ price: userInput.priceId }], // Dangerous!
+});
+
+// ✅ DO validate against known price IDs
+const ALLOWED_PRICES = [
+  process.env.STRIPE_PRO_PRICE_ID,
+  process.env.STRIPE_TEAM_PRICE_ID,
+];
+
+if (!ALLOWED_PRICES.includes(input.priceId)) {
+  throw new Error('Invalid price ID');
+}
+```
+
+---
+
+## 5. Rate Limiting
+
+### ✅ Protect Webhook Endpoints from Abuse
+
+Add rate limiting to prevent abuse:
+
+```typescript
+// src/app/api/webhooks/stripe/route.ts
+
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
+// Create rate limiter (100 requests per 10 seconds per IP)
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, '10 s'),
+  analytics: true,
+});
+
+export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for') ?? 'anonymous';
+  
+  // ✅ Check rate limit
+  const { success } = await ratelimit.limit(ip);
+  
+  if (!success) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      { status: 429 }
+    );
+  }
+  
+  // Continue with webhook processing...
+}
+```
+
+**Install dependencies:**
+```bash
+npm install @upstash/ratelimit @upstash/redis
+```
+
+---
+
+## 6. Idempotency
+
+### ✅ Prevent Duplicate Payments
+
+Stripe automatically handles idempotency for API calls:
+
+```typescript
+// ✅ Use idempotency keys for critical operations
+const session = await stripe.checkout.sessions.create(
+  {
+    // ... session config
+  },
+  {
+    idempotencyKey: `checkout_${userId}_${Date.now()}`,
+  }
+);
+```
+
+**For webhooks, prevent duplicate processing:**
+
+```typescript
+export async function POST(request: NextRequest) {
+  const event = stripe.webhooks.constructEvent(/* ... */);
+  
+  // ✅ Check if event already processed
+  const { data: existing } = await supabase
+    .from('processed_webhook_events')
+    .select('id')
+    .eq('stripe_event_id', event.id)
+    .single();
+  
+  if (existing) {
+    console.log('Event already processed:', event.id);
+    return NextResponse.json({ received: true });
+  }
+  
+  // Process event...
+  
+  // ✅ Mark as processed
+  await supabase
+    .from('processed_webhook_events')
+    .insert({ stripe_event_id: event.id });
+}
+```
+
+**Create the table:**
+```sql
+CREATE TABLE processed_webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stripe_event_id TEXT UNIQUE NOT NULL,
+  processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+---
+
+## 7. Row Level Security (RLS) for Subscriptions
+
+### ✅ Database-Level Security
+
+Our RLS policies prevent unauthorized access:
+
+```sql
+-- ✅ Users can only view their own subscription
+CREATE POLICY "Users can view own subscription"
+  ON prj_user_subscriptions
+  FOR SELECT
+  USING (user_id = auth.uid());
+
+-- ✅ Only service role can update (webhooks)
+CREATE POLICY "Service role can update subscriptions"
+  ON prj_user_subscriptions
+  FOR UPDATE
+  USING (true); -- Requires service role key
+```
+
+**Why This Matters:**
+- Users cannot see other users' subscription data
+- Users cannot modify their own subscription directly
+- Only Stripe webhooks (with service role key) can update subscriptions
+
+---
+
+## 8. Error Handling Without Information Leakage
+
+### ✅ Don't Expose Sensitive Details in Errors
+
+```typescript
+// ❌ BAD - Exposes internal details
+catch (error: any) {
+  return { 
+    success: false, 
+    error: error.message // Might contain sensitive info
+  };
+}
+
+// ✅ GOOD - Generic user-facing message, detailed logging
+catch (error: any) {
+  console.error('Payment error:', {
+    userId: user.id,
+    error: error.message,
+    stack: error.stack,
+  });
+  
+  return {
+    success: false,
+    error: 'Payment processing failed. Please try again or contact support.',
+  };
+}
+```
+
+**Production Error Handling:**
+```typescript
+// src/lib/utils/errorHandler.ts
+
+export function handlePaymentError(error: any, userId: string) {
+  // ✅ Log detailed error for debugging
+  logger.error('Payment error', {
+    userId,
+    errorMessage: error.message,
+    errorCode: error.code,
+    timestamp: new Date().toISOString(),
+  });
+  
+  // ✅ Send to monitoring service (e.g., Sentry)
+  captureException(error, {
+    tags: { feature: 'payments' },
+    user: { id: userId },
+  });
+  
+  // ✅ Return generic message to user
+  return {
+    success: false,
+    error: 'We encountered an issue processing your payment. Please try again.',
+  };
+}
+```
+
+---
+
+## 9. CORS Configuration
+
+### ✅ Restrict API Access
+
+```typescript
+// src/app/api/webhooks/stripe/route.ts
+
+export async function POST(request: NextRequest) {
+  // ✅ Verify request is from Stripe
+  const origin = request.headers.get('origin');
+  
+  // Only allow Stripe webhook servers
+  if (origin && !origin.includes('stripe.com')) {
+    return NextResponse.json(
+      { error: 'Forbidden' },
+      { status: 403 }
+    );
+  }
+  
+  // Continue processing...
+}
+```
+
+---
+
+## 10. Audit Logging
+
+### ✅ Track All Subscription Changes
+
+Log all payment-related actions for compliance and debugging:
+
+```typescript
+// src/lib/actions/auditLog.ts
+
+export async function logSubscriptionEvent(
+  userId: string,
+  event: string,
+  metadata: Record<string, any>
+) {
+  await supabase.from('audit_logs').insert({
+    user_id: userId,
+    event_type: event,
+    metadata,
+    ip_address: request.headers.get('x-forwarded-for'),
+    user_agent: request.headers.get('user-agent'),
+  });
+}
+
+// Usage in webhook
+case 'checkout.session.completed':
+  await logSubscriptionEvent(userId, 'subscription_created', {
+    plan: 'pro',
+    amount: 1000,
+    stripe_subscription_id: subscription.id,
+  });
+```
+
+**Create audit log table:**
+```sql
+CREATE TABLE audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
+  event_type TEXT NOT NULL,
+  metadata JSONB,
+  ip_address TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_event_type ON audit_logs(event_type);
+```
+
+---
+
+## 11. PCI Compliance
+
+### ✅ We Never Handle Card Data
+
+**Important:** By using Stripe Checkout, we never touch card data:
+
+- ✅ **Card data goes directly to Stripe** (not our servers)
+- ✅ **Stripe is PCI DSS Level 1 compliant**
+- ✅ **We only store Stripe customer IDs** (safe to store)
+- ✅ **No SSL certificates required for card handling**
+
+**What We Store (Safe):**
+```typescript
+{
+  stripe_customer_id: 'cus_...',     // ✅ Safe - just an ID
+  stripe_subscription_id: 'sub_...', // ✅ Safe - just an ID
+  plan_id: 'pro',                    // ✅ Safe - plan name
+}
+```
+
+**What We NEVER Store:**
+```typescript
+{
+  card_number: '4242...',      // ❌ NEVER store this
+  cvv: '123',                  // ❌ NEVER store this
+  expiry: '12/25',             // ❌ NEVER store this
+}
+```
+
+---
+
+## 12. GDPR & Data Privacy
+
+### ✅ User Data Protection
+
+**Data Minimization:**
+```typescript
+// ✅ Only store what's needed
+type UserSubscription = {
+  user_id: string;
+  plan_id: string;
+  status: string;
+  // NO: credit_card_last4, billing_address, etc.
+};
+```
+
+**Data Deletion (Right to be Forgotten):**
+```typescript
+export async function deleteUserData(userId: string) {
+  // ✅ Cancel Stripe subscription
+  const { data: subscription } = await supabase
+    .from('prj_user_subscriptions')
+    .select('stripe_subscription_id')
+    .eq('user_id', userId)
+    .single();
+  
+  if (subscription?.stripe_subscription_id) {
+    await stripe.subscriptions.cancel(subscription.stripe_subscription_id);
+  }
+  
+  // ✅ Delete from Stripe
+  if (subscription?.stripe_customer_id) {
+    await stripe.customers.del(subscription.stripe_customer_id);
+  }
+  
+  // ✅ Delete from database (cascades to payment history)
+  await supabase
+    .from('prj_user_subscriptions')
+    .delete()
+    .eq('user_id', userId);
+}
+```
+
+---
+
+## 13. Test vs Production Isolation
+
+### ✅ Keep Environments Separate
+
+**Never mix test and production keys:**
+
+```bash
+# Development (.env.local)
+STRIPE_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_test_...
+
+# Production (Vercel environment variables)
+STRIPE_SECRET_KEY=sk_live_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_live_...
+```
+
+**Runtime Check:**
+```typescript
+// ✅ Validate environment
+if (process.env.NODE_ENV === 'production') {
+  if (process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) {
+    throw new Error('Using test keys in production!');
+  }
+}
+```
+
+---
+
+## 14. Fraud Prevention
+
+### ✅ Monitor for Suspicious Activity
+
+**Stripe Radar** (built-in fraud detection):
+- Enabled automatically on all Stripe accounts
+- Blocks suspicious payments
+- No additional configuration needed
+
+**Additional Checks:**
+```typescript
+// Server Action
+export async function createCheckoutSession(input: any) {
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  // ✅ Check account age (prevent new account fraud)
+  const accountAge = Date.now() - new Date(user.created_at).getTime();
+  const ONE_HOUR = 60 * 60 * 1000;
+  
+  if (accountAge < ONE_HOUR) {
+    // New account - add extra verification
+    await logSuspiciousActivity(user.id, 'new_account_payment');
+  }
+  
+  // ✅ Check for multiple failed payments
+  const { data: failedPayments } = await supabase
+    .from('prj_payment_history')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('status', 'failed')
+    .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  
+  if (failedPayments && failedPayments.length > 3) {
+    // Too many failed attempts in 24h
+    throw new Error('Please contact support');
+  }
+}
+```
+
+---
+
+## 15. Secure Webhook Endpoint
+
+### ✅ Production Webhook Security Checklist
+
+- [x] **HTTPS only** - Stripe won't send to HTTP
+- [x] **Signature verification** - Validates sender
+- [x] **Rate limiting** - Prevents DoS attacks
+- [x] **Idempotency** - Prevents duplicate processing
+- [x] **Error handling** - Doesn't leak info
+- [x] **Audit logging** - Tracks all events
+
+**Complete Secure Webhook:**
+```typescript
+// src/app/api/webhooks/stripe/route.ts
+
+export async function POST(request: NextRequest) {
+  // 1. Rate limit
+  const { success } = await ratelimit.limit(
+    request.headers.get('x-forwarded-for') ?? 'anonymous'
+  );
+  if (!success) {
+    return NextResponse.json({ error: 'Rate limit' }, { status: 429 });
+  }
+
+  // 2. Get raw body
+  const body = await request.text();
+  const signature = request.headers.get('stripe-signature');
+
+  // 3. Verify signature
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      body,
+      signature!,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+  } catch (error) {
+    await logSecurityEvent('webhook_signature_failed', { error });
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+  }
+
+  // 4. Check idempotency
+  const { data: processed } = await supabase
+    .from('processed_webhook_events')
+    .select('id')
+    .eq('stripe_event_id', event.id)
+    .single();
+
+  if (processed) {
+    return NextResponse.json({ received: true });
+  }
+
+  // 5. Process event
+  try {
+    await processWebhookEvent(event);
+    
+    // 6. Mark as processed
+    await supabase
+      .from('processed_webhook_events')
+      .insert({ stripe_event_id: event.id });
+    
+    // 7. Audit log
+    await logAuditEvent('webhook_processed', { event_type: event.type });
+    
+    return NextResponse.json({ received: true });
+  } catch (error) {
+    // 8. Error handling (don't expose details)
+    console.error('Webhook processing error:', error);
+    await captureException(error);
+    return NextResponse.json(
+      { error: 'Processing failed' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+---
+
+## Security Checklist
+
+Before going to production, verify:
+
+### API Security
+- [ ] Secret keys are server-side only (never in client code)
+- [ ] Environment variables properly configured
+- [ ] HTTPS enforced on all payment endpoints
+- [ ] Webhook signature verification implemented
+- [ ] Rate limiting enabled on API routes
+
+### Data Security
+- [ ] RLS policies enabled on all subscription tables
+- [ ] Input validation on all payment-related endpoints
+- [ ] No sensitive data logged to console in production
+- [ ] Audit logging for all subscription changes
+- [ ] GDPR-compliant data deletion implemented
+
+### Payment Security
+- [ ] Never storing card numbers or CVV
+- [ ] Using Stripe Checkout (PCI compliant)
+- [ ] Idempotency keys for critical operations
+- [ ] Fraud monitoring enabled (Stripe Radar)
+- [ ] Test vs production keys isolated
+
+### Compliance
+- [ ] Privacy policy updated with payment processing
+- [ ] Terms of service include subscription terms
+- [ ] Refund policy clearly stated
+- [ ] Cookie consent for Stripe (if in EU)
+- [ ] VAT/sales tax handling configured
+
+### Monitoring
+- [ ] Error tracking configured (Sentry, etc.)
+- [ ] Webhook failure alerts set up
+- [ ] Failed payment notifications
+- [ ] Suspicious activity monitoring
+- [ ] Regular security audits scheduled
+
+---
+
+## Additional Security Resources
+
+**Stripe Security Best Practices:**
+- https://stripe.com/docs/security/guide
+
+**Webhook Security:**
+- https://stripe.com/docs/webhooks/best-practices
+
+**PCI Compliance:**
+- https://stripe.com/docs/security/pci
+
+**OWASP Payment Security:**
+- https://cheatsheetseries.owasp.org/cheatsheets/Payment_Security_Cheat_Sheet.html
+
+---
+
+## Next Section
+
+With security measures in place, proceed to **Production Checklist** (already covered above) and **Verification Steps** to test your secure payment integration.
+
+Remember: **Security is not a one-time setup**. Regularly review Stripe's security updates and audit your implementation.
+
