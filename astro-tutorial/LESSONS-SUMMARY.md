@@ -61,6 +61,7 @@ Search, admin panel, and deployment
 **Module:** Foundation
 **Duration:** ~3-4 hours
 **Difficulty:** Beginner
+**Reference:** `LESSON-2-CONTENT-LAYER.md`
 
 **What You'll Build:**
 - Blog content collection with TypeScript schemas
@@ -93,6 +94,7 @@ Search, admin panel, and deployment
 **Module:** Foundation
 **Duration:** ~2-3 hours
 **Difficulty:** Beginner-Intermediate
+**Reference:** `LESSON-3-MDX.md`
 
 **What You'll Build:**
 - MDX integration for enhanced posts
@@ -102,6 +104,8 @@ Search, admin panel, and deployment
 - Optimized responsive images
 - YouTube/Twitter embeds
 - Related posts widget
+- Reading progress bar
+- Social share buttons
 
 **Key Topics:**
 - MDX vs Markdown
@@ -111,14 +115,17 @@ Search, admin panel, and deployment
 - Remark/Rehype plugins
 - Component inheritance in MDX
 - External content embeds
+- Interactive client-side scripts
 
 **Files Created:**
 - `astro.config.mjs` - MDX integration config
 - `src/components/mdx/Callout.astro` - Alert component
 - `src/components/mdx/CodeBlock.astro` - Enhanced code blocks
 - `src/components/mdx/YouTubeEmbed.astro` - Video embed
+- `src/components/mdx/TweetEmbed.astro` - Twitter embed
+- `src/components/mdx/ReadingProgress.astro` - Progress bar
+- `src/components/mdx/ShareButtons.astro` - Social sharing
 - `src/content/blog/*.mdx` - MDX blog posts
-- `src/components/RelatedPosts.astro` - Related content
 
 ---
 
