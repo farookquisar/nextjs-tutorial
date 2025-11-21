@@ -133,6 +133,7 @@ Search, admin panel, and deployment
 **Module:** Database & Auth
 **Duration:** ~3-4 hours
 **Difficulty:** Intermediate
+**Reference:** `LESSON-4-SUPABASE.md`
 
 **What You'll Build:**
 - Supabase project and database
@@ -157,7 +158,7 @@ Search, admin panel, and deployment
 - `src/lib/supabase/server.ts` - Server Supabase client
 - `src/lib/supabase/client.ts` - Client Supabase client
 - `src/lib/supabase/types.ts` - Generated database types
-- `src/lib/constants.ts` - Database constants
+- `src/lib/constants/database.ts` - Database constants
 
 ---
 
@@ -165,6 +166,7 @@ Search, admin panel, and deployment
 **Module:** Database & Auth
 **Duration:** ~4-5 hours
 **Difficulty:** Intermediate
+**Reference:** `LESSON-5-AUTH.md`
 
 **What You'll Build:**
 - Complete authentication system
@@ -191,8 +193,8 @@ Search, admin panel, and deployment
 - `src/pages/signup.astro` - Signup page
 - `src/pages/dashboard.astro` - Protected dashboard
 - `src/pages/profile.astro` - User profile
-- `src/components/islands/LoginForm.tsx` - React login form
-- `src/lib/actions/auth.ts` - Auth server actions
+- `src/components/AuthButton.astro` - Auth button component
+- `src/lib/auth/index.ts` - Auth utilities
 
 ---
 
@@ -200,6 +202,7 @@ Search, admin panel, and deployment
 **Module:** Dynamic Features
 **Duration:** ~3-4 hours
 **Difficulty:** Intermediate
+**Reference:** `LESSON-6-SERVER-ISLANDS.md`
 
 **What You'll Build:**
 - User avatar widget (Server Island)
@@ -231,6 +234,7 @@ Search, admin panel, and deployment
 **Module:** Dynamic Features
 **Duration:** ~3-4 hours
 **Difficulty:** Intermediate
+**Reference:** `LESSON-7-REACT-ISLANDS.md`
 
 **What You'll Build:**
 - Interactive comment form (React)
@@ -263,6 +267,7 @@ Search, admin panel, and deployment
 **Module:** Dynamic Features
 **Duration:** ~4-5 hours
 **Difficulty:** Intermediate-Advanced
+**Reference:** `LESSON-8-COMMENTS-REALTIME.md`
 
 **What You'll Build:**
 - Complete comments system
@@ -295,6 +300,7 @@ Search, admin panel, and deployment
 **Module:** Advanced
 **Duration:** ~4-5 hours
 **Difficulty:** Intermediate-Advanced
+**Reference:** `LESSON-9-SEARCH.md`
 
 **What You'll Build:**
 - Full-text search page
@@ -319,7 +325,7 @@ Search, admin panel, and deployment
 - `src/components/islands/SearchAutocomplete.tsx` - Suggestions
 - `src/lib/search/fulltext.ts` - PostgreSQL search
 - `src/lib/search/client.ts` - Client-side search
-- `supabase/migrations/002_search_indexes.sql` - Search indexes
+- `supabase/migrations/004_search_indexes.sql` - Search indexes
 
 ---
 
@@ -327,6 +333,7 @@ Search, admin panel, and deployment
 **Module:** Advanced
 **Duration:** ~2-3 hours
 **Difficulty:** Intermediate
+**Reference:** `LESSON-10-VIEW-TRANSITIONS.md`
 
 **What You'll Build:**
 - Smooth page transitions
@@ -358,6 +365,7 @@ Search, admin panel, and deployment
 **Module:** Advanced
 **Duration:** ~5-6 hours
 **Difficulty:** Advanced
+**Reference:** `LESSON-11-ADMIN.md`
 
 **What You'll Build:**
 - Protected admin dashboard
@@ -392,6 +400,7 @@ Search, admin panel, and deployment
 **Module:** Production
 **Duration:** ~3-4 hours
 **Difficulty:** Intermediate-Advanced
+**Reference:** `LESSON-12-DEPLOYMENT.md`
 
 **What You'll Build:**
 - SEO-optimized pages with meta tags
